@@ -1,0 +1,38 @@
+name: Check 3D Printer Availability
+
+on:
+  schedule:
+    # Runs at 8am CST (2pm UTC, accounting for CST = UTC-6)
+    - cron: '0 14 * * *'
+  workflow_dispatch: # Allows manual trigger for testing
+
+jobs:
+  check-availability:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    
+    - name: Install dependencies
+      run: |
+        npm install puppeteer
+        npm install nodemailer
+    
+    - name: Check availability and send email
+      env:
+        EMAIL_TO: cconstan1@gmail.com
+      run: |
+        node check-availability.js
+    
+    - name: Upload screenshot on failure
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: error-screenshot
+        path: error.png
