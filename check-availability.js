@@ -21,6 +21,11 @@ async function checkAvailability() {
             timeout: 30000
         });
         
+        // Capture browser console logs
+        page.on('console', msg => {
+            console.log('BROWSER:', msg.text());
+        });
+        
         // Wait for the calendar to load
         await page.waitForSelector('table', { timeout: 10000 });
         await delay(3000); // Extra wait for dynamic content
