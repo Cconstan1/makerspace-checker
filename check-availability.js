@@ -30,6 +30,10 @@ async function checkAvailability() {
         await page.waitForSelector('table', { timeout: 10000 });
         await delay(3000); // Extra wait for dynamic content
         
+        // Take a screenshot to see what we're working with
+        await page.screenshot({ path: 'calendar-page1.png', fullPage: true });
+        console.log('Screenshot saved to calendar-page1.png');
+        
         console.log('Starting to check all pages...');
         
         const allAvailableDates = [];
@@ -235,6 +239,7 @@ Book now at: https://libcal.jocolibrary.org/reserve/makerspace
         console.error('Error checking availability:', error);
         try {
             await page.screenshot({ path: 'error.png', fullPage: true });
+            console.log('Error screenshot saved');
         } catch (screenshotError) {
             console.error('Could not take screenshot:', screenshotError);
         }
