@@ -48,23 +48,24 @@ async function checkAvailability() {
                 
                 console.log('=== Starting page evaluation ===');
                 
-                // Find all available event slots
-                const availableEvents = document.querySelectorAll('a.fc-timeline-event.s-lc-eq-avail');
-                console.log(`Found ${availableEvents.length} total available event slots`);
+                // Find ALL event slots (both available and reserved)
+                const allEvents = document.querySelectorAll('a.fc-timeline-event');
+                console.log(`Found ${allEvents.length} total event slots`);
                 
-                // Group by date and equipment, keeping track of time to find the last slot per day
+                // Group by date and equipment to find the LAST bookable slot
                 const dateEquipmentSlots = {};
                 
-                availableEvents.forEach(event => {
+                allEvents.forEach(event => {
                     const title = event.getAttribute('title') || event.getAttribute('aria-label') || '';
                     
                     // Extract equipment name and date/time from title
-                    // Format: "7:00pm Tuesday, January 13, 2026 - Apple Mac Studio w/ Epson 12000XL 2D Scanner - Available"
-                    const match = title.match(/(.+?) - (.+?) - Available/);
+                    // Format: "7:00pm Tuesday, January 13, 2026 - Equipment Name - Status"
+                    const match = title.match(/(.+?) - (.+?) - (Available|Reserved)/);
                     
                     if (match) {
                         const dateTimeStr = match[1].trim();
                         const equipmentName = match[2].trim();
+                        const status = match[3].trim();
                         
                         // Check if this is one of our target equipment
                         const isTargetEquipment = equipmentName.includes('Soldering Iron & Electronics Rework Station') || 
@@ -89,30 +90,35 @@ async function checkAvailability() {
                             
                             const key = `${dateStr}|${equipmentName}`;
                             
-                            // Keep only the latest time for this date+equipment combo
+                            // Keep the LATEST time slot for this date+equipment combo
                             if (!dateEquipmentSlots[key] || timeValue > dateEquipmentSlots[key].timeValue) {
                                 dateEquipmentSlots[key] = {
                                     equipment: equipmentName,
                                     date: dateStr,
                                     dateTime: dateTimeStr,
-                                    timeValue: timeValue
+                                    timeValue: timeValue,
+                                    status: status
                                 };
-                                console.log(`  Found ${equipmentName} available at ${dateTimeStr}`);
                             }
                         }
                     }
                 });
                 
-                // Convert to array (remove timeValue from results)
+                // Filter to only include slots where the LAST hour is Available
                 Object.values(dateEquipmentSlots).forEach(slot => {
-                    results.push({
-                        equipment: slot.equipment,
-                        date: slot.date,
-                        dateTime: slot.dateTime
-                    });
+                    if (slot.status === 'Available') {
+                        results.push({
+                            equipment: slot.equipment,
+                            date: slot.date,
+                            dateTime: slot.dateTime
+                        });
+                        console.log(`  ✓ ${slot.equipment} - ${slot.date}: Last hour AVAILABLE`);
+                    } else {
+                        console.log(`  ✗ ${slot.equipment} - ${slot.date}: Last hour ${slot.status}`);
+                    }
                 });
                 
-                console.log(`=== Page evaluation complete. Found ${results.length} last-hour slots ===`);
+                console.log(`=== Page evaluation complete. Found ${results.length} last-hour available slots ===`);
                 return results;
             });
             
