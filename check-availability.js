@@ -48,30 +48,25 @@ async function checkAvailability() {
                 
                 console.log('=== Starting page evaluation ===');
                 
-                // Find the main schedule table
-                const table = document.querySelector('table.fc-scrollgrid, table');
-                if (!table) {
-                    console.log('ERROR: No table found!');
-                    return results;
-                }
-                console.log('Found table');
+                // This calendar uses a list-style layout, not a traditional table
+                // Find all equipment rows - they have "info" class with equipment names
+                const equipmentRows = document.querySelectorAll('div.s-lc-eq-row');
+                console.log(`Found ${equipmentRows.length} equipment rows`);
                 
-                // Find tbody with equipment rows
-                const tbody = table.querySelector('tbody');
-                if (!tbody) {
-                    console.log('ERROR: No tbody found!');
-                    return results;
+                if (equipmentRows.length === 0) {
+                    // Try alternative selector
+                    console.log('Trying alternative selector for equipment rows...');
+                    const allRows = document.querySelectorAll('[class*="s-lc"]');
+                    console.log(`Found ${allRows.length} rows with s-lc class`);
                 }
                 
-                const rows = Array.from(tbody.querySelectorAll('tr'));
-                console.log(`Found ${rows.length} rows in tbody`);
+                // Let's try a simpler approach - find all links with equipment names
+                const equipmentLinks = document.querySelectorAll('a[href*="reserve"]');
+                console.log(`Found ${equipmentLinks.length} equipment links`);
                 
-                for (const row of rows) {
-                    const cells = Array.from(row.querySelectorAll('td, th'));
-                    if (cells.length === 0) continue;
-                    
-                    const firstCell = cells[0];
-                    const equipmentName = firstCell ? firstCell.textContent.trim() : '';
+                for (const link of equipmentLinks) {
+                    const equipmentName = link.textContent.trim();
+                    console.log(`Checking equipment: ${equipmentName}`);
                     
                     // Check if this is one of our target equipment
                     const isTargetEquipment = equipmentName.includes('Apple Mac Studio w/ Epson 12000XL 2D Scanner') || 
@@ -79,68 +74,56 @@ async function checkAvailability() {
                     
                     if (isTargetEquipment) {
                         console.log(`✓ Found target equipment: ${equipmentName}`);
-                        console.log(`  Row has ${cells.length} cells`);
                         
-                        // Get all time slot cells (skip the first cell which is equipment name)
-                        const timeCells = cells.slice(1);
-                        console.log(`  Checking ${timeCells.length} time slot cells`);
+                        // Find the parent row/container for this equipment
+                        let row = link.closest('tr, div[class*="row"]');
+                        if (!row) {
+                            console.log('  Could not find parent row');
+                            continue;
+                        }
                         
-                        // Try to determine how many cells per day
-                        const cellsPerDay = 24;
-                        const numDays = Math.floor(timeCells.length / cellsPerDay);
-                        console.log(`  Calculated ${numDays} days (${cellsPerDay} cells per day)`);
+                        // Find all time slot cells in this row
+                        const cells = row.querySelectorAll('td, div[class*="cell"]');
+                        console.log(`  Found ${cells.length} cells in row`);
                         
-                        for (let dayIndex = 0; dayIndex < numDays; dayIndex++) {
-                            const dayStartIdx = dayIndex * cellsPerDay;
-                            const dayEndIdx = Math.min(dayStartIdx + cellsPerDay, timeCells.length);
-                            const dayCells = timeCells.slice(dayStartIdx, dayEndIdx);
+                        // Search backwards from the end to find the last bookable slot
+                        for (let i = cells.length - 1; i >= 0; i--) {
+                            const cell = cells[i];
+                            const cellLink = cell.querySelector('a[href*="reserve"]');
                             
-                            // Find the last bookable cell for this day (search backwards)
-                            let lastBookableSlot = null;
-                            
-                            for (let i = dayCells.length - 1; i >= 0; i--) {
-                                const cell = dayCells[i];
-                                const link = cell.querySelector('a');
+                            if (cellLink) {
+                                // This is a bookable slot
+                                console.log(`  Found bookable slot at cell ${i}`);
                                 
-                                // Check if this cell has a booking link (is bookable)
-                                if (link && link.href && link.href.includes('reserve')) {
-                                    lastBookableSlot = { cell, cellIndex: i, link };
-                                    console.log(`  Day ${dayIndex}: Last bookable slot at index ${i}`);
-                                    break;
-                                }
-                            }
-                            
-                            if (lastBookableSlot) {
-                                const { cell, cellIndex, link } = lastBookableSlot;
+                                // Check if it's available (not reserved/unavailable)
+                                const isAvailable = cell.classList.contains('s-lc-eq-checkout-available') ||
+                                                   cell.querySelector('.s-lc-eq-available') ||
+                                                   (!cell.classList.contains('s-lc-eq-checkout-reserved') &&
+                                                    !cell.classList.contains('s-lc-eq-checkout-unavailable') &&
+                                                    !cell.classList.contains('s-lc-eq-checkout-disabled') &&
+                                                    !cellLink.classList.contains('disabled'));
                                 
-                                // Check if this slot is available (green)
-                                const cellClasses = cell.className;
-                                const hasAvailableClass = cell.classList.contains('s-lc-eq-checkout-available') ||
-                                                         cell.querySelector('.s-lc-eq-available');
-                                const isNotDisabled = !link.classList.contains('disabled');
-                                const isNotReserved = !cell.classList.contains('s-lc-eq-checkout-reserved') &&
-                                                     !cell.classList.contains('s-lc-eq-checkout-unavailable') &&
-                                                     !cell.classList.contains('s-lc-eq-checkout-disabled');
-                                
-                                const isAvailable = hasAvailableClass && isNotDisabled && isNotReserved;
-                                
-                                console.log(`  Day ${dayIndex} availability check:`);
-                                console.log(`    Cell classes: ${cellClasses}`);
-                                console.log(`    hasAvailableClass: ${hasAvailableClass}`);
-                                console.log(`    isNotDisabled: ${isNotDisabled}`);
-                                console.log(`    isNotReserved: ${isNotReserved}`);
-                                console.log(`    Final result: ${isAvailable}`);
+                                console.log(`  Cell ${i} available: ${isAvailable}`);
+                                console.log(`  Cell classes: ${cell.className}`);
                                 
                                 if (isAvailable) {
+                                    // Try to get date/time info
+                                    let dateInfo = 'Unknown';
+                                    const dataDate = cell.getAttribute('data-date');
+                                    const dataTime = cell.getAttribute('data-time');
+                                    
+                                    if (dataDate) dateInfo = dataDate;
+                                    if (dataTime) dateInfo += ' ' + dataTime;
+                                    
                                     results.push({
-                                        date: `Day ${dayIndex}`,
-                                        time: `Cell ${cellIndex}`,
-                                        dayIndex: dayIndex,
-                                        equipment: equipmentName
+                                        equipment: equipmentName,
+                                        date: dateInfo,
+                                        cellIndex: i
                                     });
                                 }
-                            } else {
-                                console.log(`  Day ${dayIndex}: No bookable slots found`);
+                                
+                                // Only check the last bookable slot
+                                break;
                             }
                         }
                     }
