@@ -94,6 +94,24 @@ async function checkAvailability() {
                         const cells = row.querySelectorAll('td');
                         console.log(`  Found ${cells.length} td cells in row`);
                         
+                        // Get the table to find date headers
+                        const table = row.closest('table');
+                        let dateHeaders = [];
+                        if (table) {
+                            // Look for header rows with dates
+                            const headerRows = table.querySelectorAll('thead tr');
+                            headerRows.forEach(headerRow => {
+                                const headers = headerRow.querySelectorAll('th');
+                                headers.forEach(h => {
+                                    const text = h.textContent.trim();
+                                    if (text.includes('day') || text.includes('January') || text.includes('February')) {
+                                        dateHeaders.push(text);
+                                    }
+                                });
+                            });
+                            console.log(`  Found ${dateHeaders.length} date headers`);
+                        }
+                        
                         if (cells.length === 0) {
                             // Maybe it's divs instead
                             const divCells = row.querySelectorAll('div[class*="cell"], div[class*="slot"]');
@@ -123,9 +141,25 @@ async function checkAvailability() {
                                 console.log(`  hasGreenClass: ${hasGreenClass}, hasRedClass: ${hasRedClass}, isAvailable: ${isAvailable}`);
                                 
                                 if (isAvailable) {
+                                    // Try to get the date from the column header
+                                    let dateText = 'Unknown Date';
+                                    
+                                    // The cell index might correspond to a date header
+                                    // Usually there's a "Space" column first, so offset by 1
+                                    if (dateHeaders.length > 0 && i < dateHeaders.length) {
+                                        dateText = dateHeaders[i] || dateHeaders[Math.floor(i / 2)];
+                                    }
+                                    
+                                    // Try to extract from link URL
+                                    if (cellLink.href && dateText === 'Unknown Date') {
+                                        const url = new URL(cellLink.href);
+                                        const urlDate = url.searchParams.get('date');
+                                        if (urlDate) dateText = urlDate;
+                                    }
+                                    
                                     results.push({
                                         equipment: equipmentName,
-                                        date: 'Found',
+                                        date: dateText,
                                         cellIndex: i
                                     });
                                 }
@@ -191,7 +225,7 @@ Check again tomorrow or visit: https://libcal.jocolibrary.org/reserve/makerspace
             `.trim();
         } else {
             const dateList = allAvailableDates
-                .map(item => `${item.date}${item.time ? ' at ' + item.time : ''}`)
+                .map(item => `${item.equipment}: ${item.date}`)
                 .join('\n  • ');
             
             message = `
@@ -214,7 +248,7 @@ Book now at: https://libcal.jocolibrary.org/reserve/makerspace
         
         if (allAvailableDates.length > 0) {
             const dateLines = allAvailableDates
-                .map(item => `- **${item.date}**${item.time ? ' at ' + item.time : ''}`)
+                .map(item => `- **${item.equipment}**: ${item.date}`)
                 .join('\n');
             
             summary = `# 3D Printer Overnight Availability\n\n## ✅ Available Dates\n\n${dateLines}\n\n[Visit Booking Page](https://libcal.jocolibrary.org/reserve/makerspace)`;
