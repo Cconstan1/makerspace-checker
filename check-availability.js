@@ -141,21 +141,45 @@ async function checkAvailability() {
                                 console.log(`  hasGreenClass: ${hasGreenClass}, hasRedClass: ${hasRedClass}, isAvailable: ${isAvailable}`);
                                 
                                 if (isAvailable) {
-                                    // Try to get the date from the column header
+                                    // Try to get the date from the link URL first (most reliable)
                                     let dateText = 'Unknown Date';
                                     
-                                    // The cell index might correspond to a date header
-                                    // Usually there's a "Space" column first, so offset by 1
-                                    if (dateHeaders.length > 0 && i < dateHeaders.length) {
-                                        dateText = dateHeaders[i] || dateHeaders[Math.floor(i / 2)];
+                                    if (cellLink.href) {
+                                        try {
+                                            const url = new URL(cellLink.href);
+                                            const urlDate = url.searchParams.get('date');
+                                            if (urlDate) {
+                                                dateText = urlDate;
+                                                console.log(`  Extracted date from URL: ${dateText}`);
+                                            }
+                                        } catch (e) {
+                                            console.log(`  Error parsing URL: ${e.message}`);
+                                        }
                                     }
                                     
-                                    // Try to extract from link URL
-                                    if (cellLink.href && dateText === 'Unknown Date') {
-                                        const url = new URL(cellLink.href);
-                                        const urlDate = url.searchParams.get('date');
-                                        if (urlDate) dateText = urlDate;
+                                    // Fallback: try to get from column header
+                                    if (dateText === 'Unknown Date' && dateHeaders.length > 0) {
+                                        // Try different header indices
+                                        const possibleIndices = [i, i-1, Math.floor(i/2)];
+                                        for (const idx of possibleIndices) {
+                                            if (dateHeaders[idx]) {
+                                                dateText = dateHeaders[idx];
+                                                console.log(`  Got date from header index ${idx}: ${dateText}`);
+                                                break;
+                                            }
+                                        }
                                     }
+                                    
+                                    // Fallback: try data attributes
+                                    if (dateText === 'Unknown Date') {
+                                        const dataDate = cell.getAttribute('data-date');
+                                        if (dataDate) {
+                                            dateText = dataDate;
+                                            console.log(`  Got date from data-date attribute: ${dateText}`);
+                                        }
+                                    }
+                                    
+                                    console.log(`  Final date: ${dateText}`);
                                     
                                     results.push({
                                         equipment: equipmentName,
