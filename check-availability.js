@@ -48,113 +48,71 @@ async function checkAvailability() {
                 
                 console.log('=== Starting page evaluation ===');
                 
-                // FullCalendar structure: datagrid on left (equipment names), lanes on right (time slots)
-                // We need to find the calendar lanes/body, not the datagrid
+                // Find all available event slots
+                const availableEvents = document.querySelectorAll('a.fc-timeline-event.s-lc-eq-avail');
+                console.log(`Found ${availableEvents.length} total available event slots`);
                 
-                const calendarBody = document.querySelector('.fc-scrollgrid-sync-table tbody, .fc-timeline-body tbody');
-                if (!calendarBody) {
-                    console.log('ERROR: Could not find calendar body');
-                    return results;
-                }
+                // Group by date and equipment, keeping track of time to find the last slot per day
+                const dateEquipmentSlots = {};
                 
-                console.log('Found calendar body');
-                
-                // Get all equipment rows in the calendar body
-                const equipmentRows = calendarBody.querySelectorAll('tr[data-resource-id], tr.fc-timeline-lane');
-                console.log(`Found ${equipmentRows.length} equipment rows in calendar`);
-                
-                // Also need to map equipment IDs to names
-                const equipmentNames = {};
-                const nameLinks = document.querySelectorAll('a.fc-datagrid-cell-main');
-                nameLinks.forEach(link => {
-                    const name = link.textContent.trim();
-                    const row = link.closest('tr');
-                    if (row) {
-                        const resourceId = row.getAttribute('data-resource-id');
-                        if (resourceId) {
-                            equipmentNames[resourceId] = name;
-                            console.log(`Mapped resource ${resourceId} to ${name}`);
+                availableEvents.forEach(event => {
+                    const title = event.getAttribute('title') || event.getAttribute('aria-label') || '';
+                    
+                    // Extract equipment name and date/time from title
+                    // Format: "7:00pm Tuesday, January 13, 2026 - Apple Mac Studio w/ Epson 12000XL 2D Scanner - Available"
+                    const match = title.match(/(.+?) - (.+?) - Available/);
+                    
+                    if (match) {
+                        const dateTimeStr = match[1].trim();
+                        const equipmentName = match[2].trim();
+                        
+                        // Check if this is one of our target equipment
+                        const isTargetEquipment = equipmentName.includes('Apple Mac Studio w/ Epson 12000XL 2D Scanner') || 
+                                                 equipmentName.includes('Vinyl Cutter & Heat Press w/PC');
+                        
+                        if (isTargetEquipment) {
+                            // Extract just the date (everything after the time)
+                            const dateMatch = dateTimeStr.match(/\d{1,2}:\d{2}[ap]m\s+(.+)/);
+                            const dateStr = dateMatch ? dateMatch[1] : dateTimeStr;
+                            
+                            // Extract time for comparison (convert to 24hr for sorting)
+                            const timeMatch = dateTimeStr.match(/(\d{1,2}):(\d{2})([ap]m)/);
+                            let timeValue = 0;
+                            if (timeMatch) {
+                                let hour = parseInt(timeMatch[1]);
+                                const minute = parseInt(timeMatch[2]);
+                                const ampm = timeMatch[3];
+                                if (ampm === 'pm' && hour !== 12) hour += 12;
+                                if (ampm === 'am' && hour === 12) hour = 0;
+                                timeValue = hour * 60 + minute;
+                            }
+                            
+                            const key = `${dateStr}|${equipmentName}`;
+                            
+                            // Keep only the latest time for this date+equipment combo
+                            if (!dateEquipmentSlots[key] || timeValue > dateEquipmentSlots[key].timeValue) {
+                                dateEquipmentSlots[key] = {
+                                    equipment: equipmentName,
+                                    date: dateStr,
+                                    dateTime: dateTimeStr,
+                                    timeValue: timeValue
+                                };
+                                console.log(`  Found ${equipmentName} available at ${dateTimeStr}`);
+                            }
                         }
                     }
                 });
                 
-                // Check each equipment row
-                for (const row of equipmentRows) {
-                    const resourceId = row.getAttribute('data-resource-id');
-                    const equipmentName = equipmentNames[resourceId] || 'Unknown Equipment';
-                    
-                    console.log(`Checking row for: ${equipmentName}`);
-                    
-                    // Check if this is one of our target equipment
-                    const isTargetEquipment = equipmentName.includes('Apple Mac Studio w/ Epson 12000XL 2D Scanner') || 
-                                             equipmentName.includes('Vinyl Cutter & Heat Press w/PC');
-                    
-                    if (isTargetEquipment) {
-                        console.log(`✓ Found target equipment: ${equipmentName}`);
-                        
-                        // Find all time slot cells in this row
-                        const timeCells = row.querySelectorAll('td.fc-timeline-lane-frame, td[data-date]');
-                        console.log(`  Found ${timeCells.length} time cells`);
-                        
-                        // Search backwards from the end to find the last bookable slot
-                        for (let i = timeCells.length - 1; i >= 0; i--) {
-                            const cell = timeCells[i];
-                            const cellLink = cell.querySelector('a');
-                            
-                            if (cellLink && cellLink.href && !cellLink.href.endsWith('#')) {
-                                // This is a bookable slot
-                                console.log(`  Found bookable slot at cell ${i}`);
-                                console.log(`  Cell link href: ${cellLink.href}`);
-                                
-                                // Check if it's available
-                                const hasRedClass = cell.className.includes('reserved') || 
-                                                   cell.className.includes('unavailable') ||
-                                                   cell.className.includes('disabled');
-                                
-                                const isAvailable = !hasRedClass;
-                                
-                                console.log(`  Cell classes: ${cell.className}`);
-                                console.log(`  isAvailable: ${isAvailable}`);
-                                
-                                if (isAvailable) {
-                                    // Extract date from link URL
-                                    let dateText = 'Unknown Date';
-                                    
-                                    try {
-                                        const url = new URL(cellLink.href);
-                                        const urlDate = url.searchParams.get('date');
-                                        if (urlDate) {
-                                            dateText = urlDate;
-                                            console.log(`  Extracted date: ${dateText}`);
-                                        }
-                                    } catch (e) {
-                                        console.log(`  Error parsing URL: ${e.message}`);
-                                    }
-                                    
-                                    // Try data-date attribute
-                                    if (dateText === 'Unknown Date') {
-                                        const dataDate = cell.getAttribute('data-date');
-                                        if (dataDate) {
-                                            dateText = dataDate;
-                                            console.log(`  Got date from data-date: ${dateText}`);
-                                        }
-                                    }
-                                    
-                                    results.push({
-                                        equipment: equipmentName,
-                                        date: dateText,
-                                        cellIndex: i
-                                    });
-                                }
-                                
-                                // Only check the last bookable slot
-                                break;
-                            }
-                        }
-                    }
-                }
+                // Convert to array (remove timeValue from results)
+                Object.values(dateEquipmentSlots).forEach(slot => {
+                    results.push({
+                        equipment: slot.equipment,
+                        date: slot.date,
+                        dateTime: slot.dateTime
+                    });
+                });
                 
-                console.log(`=== Page evaluation complete. Found ${results.length} available slots ===`);
+                console.log(`=== Page evaluation complete. Found ${results.length} last-hour slots ===`);
                 return results;
             });
             
@@ -193,7 +151,7 @@ async function checkAvailability() {
         
         console.log('Total available dates found:', allAvailableDates);
         
-        // Format results
+        // Format results grouped by date
         let message;
         if (allAvailableDates.length === 0) {
             message = `
@@ -207,9 +165,18 @@ No available overnight printing slots (last hour of the day) found for "3D Print
 Check again tomorrow or visit: https://libcal.jocolibrary.org/reserve/makerspace
             `.trim();
         } else {
-            const dateList = allAvailableDates
-                .map(item => `${item.equipment}: ${item.date}`)
-                .join('\n  • ');
+            // Group by date
+            const byDate = {};
+            allAvailableDates.forEach(item => {
+                if (!byDate[item.date]) {
+                    byDate[item.date] = [];
+                }
+                byDate[item.date].push(item.equipment);
+            });
+            
+            const dateList = Object.keys(byDate)
+                .map(date => `${date}:\n    - ${byDate[date].join('\n    - ')}`)
+                .join('\n\n  • ');
             
             message = `
 🖨️ 3D PRINTER AVAILABILITY CHECK
@@ -230,8 +197,17 @@ Book now at: https://libcal.jocolibrary.org/reserve/makerspace
         let summary;
         
         if (allAvailableDates.length > 0) {
-            const dateLines = allAvailableDates
-                .map(item => `- **${item.equipment}**: ${item.date}`)
+            // Group by date
+            const byDate = {};
+            allAvailableDates.forEach(item => {
+                if (!byDate[item.date]) {
+                    byDate[item.date] = [];
+                }
+                byDate[item.date].push(item.equipment);
+            });
+            
+            const dateLines = Object.keys(byDate)
+                .map(date => `- **${date}**\n${byDate[date].map(eq => `  - ${eq}`).join('\n')}`)
                 .join('\n');
             
             summary = `# 3D Printer Overnight Availability\n\n## ✅ Available Dates\n\n${dateLines}\n\n[Visit Booking Page](https://libcal.jocolibrary.org/reserve/makerspace)`;
