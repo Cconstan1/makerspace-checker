@@ -67,7 +67,7 @@ async function checkAvailability() {
                         const equipmentName = match[2].trim();
                         
                         // Check if this is one of our target equipment
-                        const isTargetEquipment = equipmentName.includes('Apple Mac Studio w/ Epson 12000XL 2D Scanner') || 
+                        const isTargetEquipment = equipmentName.includes('Soldering Iron & Electronics Rework Station') || 
                                                  equipmentName.includes('Vinyl Cutter & Heat Press w/PC');
                         
                         if (isTargetEquipment) {
