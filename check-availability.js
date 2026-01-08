@@ -69,7 +69,8 @@ async function checkAvailability() {
                         
                         // Check if this is one of our target equipment
                         const isTargetEquipment = equipmentName.includes('Soldering Iron & Electronics Rework Station') || 
-                                                 equipmentName.includes('Vinyl Cutter & Heat Press w/PC');
+                                                 equipmentName.includes('Vinyl Cutter & Heat Press w/PC') ||
+                                                 equipmentName.includes('Resin Printer -Formlabs Form 3 & Dell PC');
                         
                         if (isTargetEquipment) {
                             // Extract just the date (everything after the time)
@@ -157,6 +158,38 @@ async function checkAvailability() {
         
         console.log('Total available dates found:', allAvailableDates);
         
+        // Read previous state to detect NEW availability
+        const fs = require('fs');
+        let previousState = [];
+        try {
+            const stateData = fs.readFileSync('previous-state.json', 'utf8');
+            previousState = JSON.parse(stateData);
+            console.log('Loaded previous state:', previousState);
+        } catch (error) {
+            console.log('No previous state found (first run)');
+        }
+        
+        // Find NEW available dates (not in previous state)
+        const newAvailability = allAvailableDates.filter(current => {
+            return !previousState.some(prev => 
+                prev.equipment === current.equipment && prev.date === current.date
+            );
+        });
+        
+        console.log('New availability detected:', newAvailability);
+        
+        // Save current state for next run
+        try {
+            fs.writeFileSync('previous-state.json', JSON.stringify(allAvailableDates, null, 2));
+            console.log('Saved current state');
+        } catch (error) {
+            console.error('Error saving state:', error);
+        }
+        
+        // Only generate output if there's NEW availability (or first run)
+        const isFirstRun = previousState.length === 0;
+        const hasNewAvailability = newAvailability.length > 0;
+        
         // Format results grouped by date
         let message;
         if (allAvailableDates.length === 0) {
@@ -166,14 +199,16 @@ async function checkAvailability() {
 
 ❌ None available
 
-No available overnight printing slots (last hour of the day) found for "3D Printer - Prusa XL 5-Toolhead" over the next 14 days.
+No available overnight printing slots (last hour of the day) found over the next 14 days.
 
 Check again tomorrow or visit: https://libcal.jocolibrary.org/reserve/makerspace
             `.trim();
-        } else {
+        } else if (hasNewAvailability || isFirstRun) {
             // Group by date
             const byDate = {};
-            allAvailableDates.forEach(item => {
+            const datesToShow = isFirstRun ? allAvailableDates : newAvailability;
+            
+            datesToShow.forEach(item => {
                 if (!byDate[item.date]) {
                     byDate[item.date] = [];
                 }
@@ -184,15 +219,27 @@ Check again tomorrow or visit: https://libcal.jocolibrary.org/reserve/makerspace
                 .map(date => `${date}:\n    - ${byDate[date].join('\n    - ')}`)
                 .join('\n\n  • ');
             
+            const header = isFirstRun ? '✅ Currently Available' : '🆕 NEW Availability Detected!';
+            
             message = `
 🖨️ 3D PRINTER AVAILABILITY CHECK
 ================================
 
-✅ Available overnight printing slots (last hour):
+${header}
 
   • ${dateList}
 
 Book now at: https://libcal.jocolibrary.org/reserve/makerspace
+            `.trim();
+        } else {
+            message = `
+🖨️ 3D PRINTER AVAILABILITY CHECK
+================================
+
+✓ No changes
+
+Same availability as last check (${allAvailableDates.length} slots still available).
+No action needed.
             `.trim();
         }
         
@@ -202,10 +249,12 @@ Book now at: https://libcal.jocolibrary.org/reserve/makerspace
         const fs = require('fs');
         let summary;
         
-        if (allAvailableDates.length > 0) {
+        if (allAvailableDates.length > 0 && (hasNewAvailability || isFirstRun)) {
             // Group by date
             const byDate = {};
-            allAvailableDates.forEach(item => {
+            const datesToShow = isFirstRun ? allAvailableDates : newAvailability;
+            
+            datesToShow.forEach(item => {
                 if (!byDate[item.date]) {
                     byDate[item.date] = [];
                 }
@@ -216,9 +265,13 @@ Book now at: https://libcal.jocolibrary.org/reserve/makerspace
                 .map(date => `- **${date}**\n${byDate[date].map(eq => `  - ${eq}`).join('\n')}`)
                 .join('\n');
             
-            summary = `# 3D Printer Overnight Availability\n\n## ✅ Available Dates\n\n${dateLines}\n\n[Visit Booking Page](https://libcal.jocolibrary.org/reserve/makerspace)`;
-        } else {
+            const header = isFirstRun ? 'Currently Available' : '🆕 NEW Availability Detected!';
+            
+            summary = `# 3D Printer Overnight Availability\n\n## ${header}\n\n${dateLines}\n\n[Visit Booking Page](https://libcal.jocolibrary.org/reserve/makerspace)`;
+        } else if (allAvailableDates.length === 0) {
             summary = `# 3D Printer Overnight Availability\n\n## ❌ None Available\n\nNo overnight printing slots found for the next 14 days.\n\n[Visit Booking Page](https://libcal.jocolibrary.org/reserve/makerspace)`;
+        } else {
+            summary = `# 3D Printer Overnight Availability\n\n## ✓ No Changes\n\nSame availability as last check (${allAvailableDates.length} slots still available).\n\n[Visit Booking Page](https://libcal.jocolibrary.org/reserve/makerspace)`;
         }
         
         fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY || 'summary.md', summary);
