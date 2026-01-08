@@ -33,16 +33,6 @@ async function checkAvailability() {
         while (true) {
             console.log(`Checking page ${pageNumber}...`);
             
-            // Check for "end of bookable window" message
-            const endMessage = await page.evaluate(() => {
-                const body = document.body.textContent;
-                return body.includes('You have reached the end of the bookable window');
-            });
-            
-            if (endMessage) {
-                console.log('Reached end of bookable window message');
-            }
-            
             // Extract availability from current page
             const availableDates = await page.evaluate(() => {
                 const results = [];
@@ -119,8 +109,7 @@ async function checkAvailability() {
                     const firstCell = cells[0];
                     
                     // Check if this is a 3D Printer row
-                    if (firstCell && (firstCell.textContent.includes('Apple Mac Studio w/ Epson 12000XL 2D Scanner') || 
-                                      firstCell.textContent.includes('Vinyl Cutter & Heat Press w/PC'))) {
+                    if (firstCell && firstCell.textContent.includes('3D Printer - Prusa XL 5-Toolhead')) {
                         console.log('Found 3D Printer row');
                         
                         // Get all time slot cells (skip the first cell which is equipment name)
@@ -209,14 +198,14 @@ async function checkAvailability() {
             console.log(`Page ${pageNumber} found:`, availableDates);
             allAvailableDates.push(...availableDates);
             
-            // Check if next button is disabled
+            // Check if next button is disabled (this is the real indicator we're at the end)
             const nextButtonDisabled = await page.evaluate(() => {
                 const nextBtn = document.querySelector('button.fc-next-button');
                 return nextBtn ? nextBtn.disabled : true;
             });
             
-            if (nextButtonDisabled || endMessage) {
-                console.log('Next button disabled or reached end');
+            if (nextButtonDisabled) {
+                console.log('Next button is disabled - reached end of calendar');
                 break;
             }
             
