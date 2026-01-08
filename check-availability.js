@@ -37,91 +37,49 @@ async function checkAvailability() {
             const availableDates = await page.evaluate(() => {
                 const results = [];
                 
+                console.log('=== Starting page evaluation ===');
+                
                 // Find the main schedule table
                 const table = document.querySelector('table.fc-scrollgrid, table');
-                if (!table) return results;
-                
-                // Get all header rows from thead
-                const thead = table.querySelector('thead');
-                if (!thead) return results;
-                
-                const headerRows = Array.from(thead.querySelectorAll('tr'));
-                
-                // First header row should have dates
-                let dateRow = null;
-                let timeRow = null;
-                
-                // Try to find the row with dates and the row with times
-                for (const row of headerRows) {
-                    const firstTh = row.querySelector('th');
-                    if (firstTh) {
-                        const text = firstTh.textContent.trim();
-                        // Date headers typically have day names or dates
-                        if (text.includes('day') || text.match(/\d{1,2}:\d{2}/)) {
-                            if (!dateRow && (text.includes('Monday') || text.includes('Tuesday') || 
-                                text.includes('Wednesday') || text.includes('Thursday') || 
-                                text.includes('Friday') || text.includes('Saturday') || 
-                                text.includes('Sunday'))) {
-                                dateRow = row;
-                            } else if (!timeRow && text.match(/\d{1,2}:\d{2}/)) {
-                                timeRow = row;
-                            }
-                        }
-                    }
-                }
-                
-                // If we can't find proper headers, try alternative structure
-                if (!dateRow) {
-                    // Look for date information in data attributes or elsewhere
-                    dateRow = headerRows.find(row => {
-                        const ths = row.querySelectorAll('th');
-                        return Array.from(ths).some(th => 
-                            th.getAttribute('data-date') || 
-                            th.textContent.includes('January') ||
-                            th.textContent.includes('February')
-                        );
-                    });
-                }
-                
-                if (!dateRow) {
-                    console.log('Could not find date row');
+                if (!table) {
+                    console.log('ERROR: No table found!');
                     return results;
                 }
-                
-                const dateHeaders = Array.from(dateRow.querySelectorAll('th'));
-                
-                // Get time headers if available
-                let timeHeaders = [];
-                if (timeRow) {
-                    timeHeaders = Array.from(timeRow.querySelectorAll('th'));
-                }
+                console.log('Found table');
                 
                 // Find tbody with equipment rows
                 const tbody = table.querySelector('tbody');
-                if (!tbody) return results;
+                if (!tbody) {
+                    console.log('ERROR: No tbody found!');
+                    return results;
+                }
                 
                 const rows = Array.from(tbody.querySelectorAll('tr'));
+                console.log(`Found ${rows.length} rows in tbody`);
                 
                 for (const row of rows) {
                     const cells = Array.from(row.querySelectorAll('td, th'));
                     if (cells.length === 0) continue;
                     
                     const firstCell = cells[0];
+                    const equipmentName = firstCell ? firstCell.textContent.trim() : '';
                     
-                    // Check if this is a 3D Printer row
-                    if (firstCell && firstCell.textContent.includes('3D Printer - Prusa XL 5-Toolhead')) {
-                        console.log('Found 3D Printer row');
+                    // Check if this is one of our target equipment
+                    const isTargetEquipment = equipmentName.includes('Apple Mac Studio w/ Epson 12000XL 2D Scanner') || 
+                                             equipmentName.includes('Vinyl Cutter & Heat Press w/PC');
+                    
+                    if (isTargetEquipment) {
+                        console.log(`✓ Found target equipment: ${equipmentName}`);
+                        console.log(`  Row has ${cells.length} cells`);
                         
                         // Get all time slot cells (skip the first cell which is equipment name)
                         const timeCells = cells.slice(1);
+                        console.log(`  Checking ${timeCells.length} time slot cells`);
                         
                         // Try to determine how many cells per day
-                        // Typically 24 hours per day
                         const cellsPerDay = 24;
-                        
-                        // Calculate number of days shown
                         const numDays = Math.floor(timeCells.length / cellsPerDay);
-                        console.log(`Processing ${numDays} days with ${timeCells.length} total cells`);
+                        console.log(`  Calculated ${numDays} days (${cellsPerDay} cells per day)`);
                         
                         for (let dayIndex = 0; dayIndex < numDays; dayIndex++) {
                             const dayStartIdx = dayIndex * cellsPerDay;
@@ -138,6 +96,7 @@ async function checkAvailability() {
                                 // Check if this cell has a booking link (is bookable)
                                 if (link && link.href && link.href.includes('reserve')) {
                                     lastBookableSlot = { cell, cellIndex: i, link };
+                                    console.log(`  Day ${dayIndex}: Last bookable slot at index ${i}`);
                                     break;
                                 }
                             }
@@ -146,6 +105,7 @@ async function checkAvailability() {
                                 const { cell, cellIndex, link } = lastBookableSlot;
                                 
                                 // Check if this slot is available (green)
+                                const cellClasses = cell.className;
                                 const hasAvailableClass = cell.classList.contains('s-lc-eq-checkout-available') ||
                                                          cell.querySelector('.s-lc-eq-available');
                                 const isNotDisabled = !link.classList.contains('disabled');
@@ -155,43 +115,29 @@ async function checkAvailability() {
                                 
                                 const isAvailable = hasAvailableClass && isNotDisabled && isNotReserved;
                                 
-                                console.log(`Day ${dayIndex}: Last bookable slot at index ${cellIndex}, available: ${isAvailable}`);
+                                console.log(`  Day ${dayIndex} availability check:`);
+                                console.log(`    Cell classes: ${cellClasses}`);
+                                console.log(`    hasAvailableClass: ${hasAvailableClass}`);
+                                console.log(`    isNotDisabled: ${isNotDisabled}`);
+                                console.log(`    isNotReserved: ${isNotReserved}`);
+                                console.log(`    Final result: ${isAvailable}`);
                                 
                                 if (isAvailable) {
-                                    // Get the date for this day
-                                    let dateText = 'Unknown Date';
-                                    
-                                    // dateHeaders[0] might be equipment column, so dates start at index 1
-                                    // But we need to map dayIndex to the correct header
-                                    const dateHeaderIdx = dayIndex + 1;
-                                    if (dateHeaders[dateHeaderIdx]) {
-                                        dateText = dateHeaders[dateHeaderIdx].textContent.trim();
-                                    }
-                                    
-                                    // Try to get date from data attribute
-                                    const dataDate = cell.getAttribute('data-date');
-                                    if (dataDate && dateText === 'Unknown Date') {
-                                        dateText = dataDate;
-                                    }
-                                    
-                                    // Try to get time
-                                    let timeText = '';
-                                    const globalCellIdx = dayStartIdx + cellIndex + 1; // +1 for equipment column
-                                    if (timeHeaders[globalCellIdx]) {
-                                        timeText = timeHeaders[globalCellIdx].textContent.trim();
-                                    }
-                                    
                                     results.push({
-                                        date: dateText,
-                                        time: timeText || `Hour ${cellIndex}`,
-                                        dayIndex: dayIndex
+                                        date: `Day ${dayIndex}`,
+                                        time: `Cell ${cellIndex}`,
+                                        dayIndex: dayIndex,
+                                        equipment: equipmentName
                                     });
                                 }
+                            } else {
+                                console.log(`  Day ${dayIndex}: No bookable slots found`);
                             }
                         }
                     }
                 }
                 
+                console.log(`=== Page evaluation complete. Found ${results.length} available slots ===`);
                 return results;
             });
             
