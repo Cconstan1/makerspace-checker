@@ -119,7 +119,8 @@ async function checkAvailability() {
                     const firstCell = cells[0];
                     
                     // Check if this is a 3D Printer row
-                    if (firstCell && firstCell.textContent.includes('3D Printer - Prusa XL 5-Toolhead')) {
+                    if (firstCell && (firstCell.textContent.includes('Apple Mac Studio w/ Epson 12000XL 2D Scanner') || 
+                                      firstCell.textContent.includes('Vinyl Cutter & Heat Press w/PC'))) {
                         console.log('Found 3D Printer row');
                         
                         // Get all time slot cells (skip the first cell which is equipment name)
