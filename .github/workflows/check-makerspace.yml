@@ -29,7 +29,14 @@ jobs:
         EMAIL_TO: cconstan1@gmail.com
       run: |
         node check-availability.js
-    
+        
+    - name: Upload screenshot
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: calendar-screenshot
+        path: calendar-page1.png
+        
     - name: Upload screenshot on failure
       if: failure()
       uses: actions/upload-artifact@v4
