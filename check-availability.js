@@ -1,5 +1,10 @@
 const puppeteer = require('puppeteer');
 
+// Helper function to wait/delay
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function checkAvailability() {
     const browser = await puppeteer.launch({
         headless: 'new',
@@ -18,7 +23,7 @@ async function checkAvailability() {
         
         // Wait for the calendar to load
         await page.waitForSelector('table', { timeout: 10000 });
-        await page.waitForTimeout(3000); // Extra wait for dynamic content
+        await delay(3000); // Extra wait for dynamic content
         
         console.log('Starting to check all pages...');
         
@@ -219,7 +224,7 @@ async function checkAvailability() {
                 await page.waitForSelector('button.fc-next-button', { timeout: 5000 });
                 await page.click('button.fc-next-button');
                 console.log('Clicked next button');
-                await page.waitForTimeout(3000); // Wait for new data to load
+                await delay(3000); // Wait for new data to load
                 pageNumber++;
             } catch (error) {
                 console.log('Could not click next button:', error.message);
