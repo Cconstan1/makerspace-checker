@@ -2,8 +2,8 @@ name: Check 3D Printer Availability
 
 on:
   schedule:
-    # Runs at 8am CST (2pm UTC, accounting for CST = UTC-6)
-    - cron: '0 14 * * *'
+    # Run every 15 minutes
+    - cron: '*/15 * * * *'
   workflow_dispatch: # Allows manual trigger for testing
 
 jobs:
@@ -29,7 +29,7 @@ jobs:
         EMAIL_TO: cconstan1@gmail.com
       run: |
         node check-availability.js
-        
+    
     - name: Upload screenshot
       if: always()
       uses: actions/upload-artifact@v4
@@ -43,3 +43,11 @@ jobs:
       with:
         name: error-screenshot
         path: error.png
+    
+    - name: Commit state file
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        git add -f previous-state.json || true
+        git commit -m "Update availability state" || true
+        git push || true
