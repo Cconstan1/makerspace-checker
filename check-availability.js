@@ -48,26 +48,42 @@ async function checkAvailability() {
                 
                 console.log('=== Starting page evaluation ===');
                 
-                // Find ALL links on the page and log them to understand the structure
-                const allLinks = document.querySelectorAll('a');
-                console.log(`Total links on page: ${allLinks.length}`);
+                // FullCalendar structure: datagrid on left (equipment names), lanes on right (time slots)
+                // We need to find the calendar lanes/body, not the datagrid
                 
-                // Look specifically for equipment links - they're in the "Space" column
-                const equipmentLinks = [];
-                allLinks.forEach(link => {
-                    const text = link.textContent.trim();
-                    if (text.includes('3D Printer') || text.includes('Apple Mac') || 
-                        text.includes('Vinyl Cutter') || text.includes('Laser Cutter') ||
-                        text.includes('CNC Router') || text.includes('Sewing Machine')) {
-                        equipmentLinks.push(link);
-                        console.log(`Found equipment link: "${text}"`);
+                const calendarBody = document.querySelector('.fc-scrollgrid-sync-table tbody, .fc-timeline-body tbody');
+                if (!calendarBody) {
+                    console.log('ERROR: Could not find calendar body');
+                    return results;
+                }
+                
+                console.log('Found calendar body');
+                
+                // Get all equipment rows in the calendar body
+                const equipmentRows = calendarBody.querySelectorAll('tr[data-resource-id], tr.fc-timeline-lane');
+                console.log(`Found ${equipmentRows.length} equipment rows in calendar`);
+                
+                // Also need to map equipment IDs to names
+                const equipmentNames = {};
+                const nameLinks = document.querySelectorAll('a.fc-datagrid-cell-main');
+                nameLinks.forEach(link => {
+                    const name = link.textContent.trim();
+                    const row = link.closest('tr');
+                    if (row) {
+                        const resourceId = row.getAttribute('data-resource-id');
+                        if (resourceId) {
+                            equipmentNames[resourceId] = name;
+                            console.log(`Mapped resource ${resourceId} to ${name}`);
+                        }
                     }
                 });
                 
-                console.log(`Found ${equipmentLinks.length} equipment links`);
-                
-                for (const link of equipmentLinks) {
-                    const equipmentName = link.textContent.trim();
+                // Check each equipment row
+                for (const row of equipmentRows) {
+                    const resourceId = row.getAttribute('data-resource-id');
+                    const equipmentName = equipmentNames[resourceId] || 'Unknown Equipment';
+                    
+                    console.log(`Checking row for: ${equipmentName}`);
                     
                     // Check if this is one of our target equipment
                     const isTargetEquipment = equipmentName.includes('Apple Mac Studio w/ Epson 12000XL 2D Scanner') || 
@@ -76,110 +92,53 @@ async function checkAvailability() {
                     if (isTargetEquipment) {
                         console.log(`✓ Found target equipment: ${equipmentName}`);
                         
-                        // Find the parent row/container for this equipment
-                        let row = link.closest('tr');
-                        if (!row) {
-                            console.log('  Trying to find parent div...');
-                            row = link.closest('div[class*="row"]');
-                        }
-                        
-                        if (!row) {
-                            console.log('  Could not find parent row');
-                            continue;
-                        }
-                        
-                        console.log(`  Found parent row with tag: ${row.tagName}`);
-                        
-                        // Find all time slot cells/divs in this row
-                        const cells = row.querySelectorAll('td');
-                        console.log(`  Found ${cells.length} td cells in row`);
-                        
-                        // Get the table to find date headers
-                        const table = row.closest('table');
-                        let dateHeaders = [];
-                        if (table) {
-                            // Look for header rows with dates
-                            const headerRows = table.querySelectorAll('thead tr');
-                            headerRows.forEach(headerRow => {
-                                const headers = headerRow.querySelectorAll('th');
-                                headers.forEach(h => {
-                                    const text = h.textContent.trim();
-                                    if (text.includes('day') || text.includes('January') || text.includes('February')) {
-                                        dateHeaders.push(text);
-                                    }
-                                });
-                            });
-                            console.log(`  Found ${dateHeaders.length} date headers`);
-                        }
-                        
-                        if (cells.length === 0) {
-                            // Maybe it's divs instead
-                            const divCells = row.querySelectorAll('div[class*="cell"], div[class*="slot"]');
-                            console.log(`  Found ${divCells.length} div cells in row`);
-                        }
+                        // Find all time slot cells in this row
+                        const timeCells = row.querySelectorAll('td.fc-timeline-lane-frame, td[data-date]');
+                        console.log(`  Found ${timeCells.length} time cells`);
                         
                         // Search backwards from the end to find the last bookable slot
-                        for (let i = cells.length - 1; i >= 0; i--) {
-                            const cell = cells[i];
+                        for (let i = timeCells.length - 1; i >= 0; i--) {
+                            const cell = timeCells[i];
                             const cellLink = cell.querySelector('a');
                             
-                            if (cellLink) {
+                            if (cellLink && cellLink.href && !cellLink.href.endsWith('#')) {
                                 // This is a bookable slot
                                 console.log(`  Found bookable slot at cell ${i}`);
                                 console.log(`  Cell link href: ${cellLink.href}`);
-                                console.log(`  Cell classes: ${cell.className}`);
                                 
                                 // Check if it's available
-                                const hasGreenClass = cell.className.includes('available') || 
-                                                     cell.className.includes('green');
                                 const hasRedClass = cell.className.includes('reserved') || 
                                                    cell.className.includes('unavailable') ||
                                                    cell.className.includes('disabled');
                                 
                                 const isAvailable = !hasRedClass;
                                 
-                                console.log(`  hasGreenClass: ${hasGreenClass}, hasRedClass: ${hasRedClass}, isAvailable: ${isAvailable}`);
+                                console.log(`  Cell classes: ${cell.className}`);
+                                console.log(`  isAvailable: ${isAvailable}`);
                                 
                                 if (isAvailable) {
-                                    // Try to get the date from the link URL first (most reliable)
+                                    // Extract date from link URL
                                     let dateText = 'Unknown Date';
                                     
-                                    if (cellLink.href) {
-                                        try {
-                                            const url = new URL(cellLink.href);
-                                            const urlDate = url.searchParams.get('date');
-                                            if (urlDate) {
-                                                dateText = urlDate;
-                                                console.log(`  Extracted date from URL: ${dateText}`);
-                                            }
-                                        } catch (e) {
-                                            console.log(`  Error parsing URL: ${e.message}`);
+                                    try {
+                                        const url = new URL(cellLink.href);
+                                        const urlDate = url.searchParams.get('date');
+                                        if (urlDate) {
+                                            dateText = urlDate;
+                                            console.log(`  Extracted date: ${dateText}`);
                                         }
+                                    } catch (e) {
+                                        console.log(`  Error parsing URL: ${e.message}`);
                                     }
                                     
-                                    // Fallback: try to get from column header
-                                    if (dateText === 'Unknown Date' && dateHeaders.length > 0) {
-                                        // Try different header indices
-                                        const possibleIndices = [i, i-1, Math.floor(i/2)];
-                                        for (const idx of possibleIndices) {
-                                            if (dateHeaders[idx]) {
-                                                dateText = dateHeaders[idx];
-                                                console.log(`  Got date from header index ${idx}: ${dateText}`);
-                                                break;
-                                            }
-                                        }
-                                    }
-                                    
-                                    // Fallback: try data attributes
+                                    // Try data-date attribute
                                     if (dateText === 'Unknown Date') {
                                         const dataDate = cell.getAttribute('data-date');
                                         if (dataDate) {
                                             dateText = dataDate;
-                                            console.log(`  Got date from data-date attribute: ${dateText}`);
+                                            console.log(`  Got date from data-date: ${dateText}`);
                                         }
                                     }
-                                    
-                                    console.log(`  Final date: ${dateText}`);
                                     
                                     results.push({
                                         equipment: equipmentName,
