@@ -48,25 +48,26 @@ async function checkAvailability() {
                 
                 console.log('=== Starting page evaluation ===');
                 
-                // This calendar uses a list-style layout, not a traditional table
-                // Find all equipment rows - they have "info" class with equipment names
-                const equipmentRows = document.querySelectorAll('div.s-lc-eq-row');
-                console.log(`Found ${equipmentRows.length} equipment rows`);
+                // Find ALL links on the page and log them to understand the structure
+                const allLinks = document.querySelectorAll('a');
+                console.log(`Total links on page: ${allLinks.length}`);
                 
-                if (equipmentRows.length === 0) {
-                    // Try alternative selector
-                    console.log('Trying alternative selector for equipment rows...');
-                    const allRows = document.querySelectorAll('[class*="s-lc"]');
-                    console.log(`Found ${allRows.length} rows with s-lc class`);
-                }
+                // Look specifically for equipment links - they're in the "Space" column
+                const equipmentLinks = [];
+                allLinks.forEach(link => {
+                    const text = link.textContent.trim();
+                    if (text.includes('3D Printer') || text.includes('Apple Mac') || 
+                        text.includes('Vinyl Cutter') || text.includes('Laser Cutter') ||
+                        text.includes('CNC Router') || text.includes('Sewing Machine')) {
+                        equipmentLinks.push(link);
+                        console.log(`Found equipment link: "${text}"`);
+                    }
+                });
                 
-                // Let's try a simpler approach - find all links with equipment names
-                const equipmentLinks = document.querySelectorAll('a[href*="reserve"]');
                 console.log(`Found ${equipmentLinks.length} equipment links`);
                 
                 for (const link of equipmentLinks) {
                     const equipmentName = link.textContent.trim();
-                    console.log(`Checking equipment: ${equipmentName}`);
                     
                     // Check if this is one of our target equipment
                     const isTargetEquipment = equipmentName.includes('Apple Mac Studio w/ Epson 12000XL 2D Scanner') || 
@@ -76,48 +77,55 @@ async function checkAvailability() {
                         console.log(`✓ Found target equipment: ${equipmentName}`);
                         
                         // Find the parent row/container for this equipment
-                        let row = link.closest('tr, div[class*="row"]');
+                        let row = link.closest('tr');
+                        if (!row) {
+                            console.log('  Trying to find parent div...');
+                            row = link.closest('div[class*="row"]');
+                        }
+                        
                         if (!row) {
                             console.log('  Could not find parent row');
                             continue;
                         }
                         
-                        // Find all time slot cells in this row
-                        const cells = row.querySelectorAll('td, div[class*="cell"]');
-                        console.log(`  Found ${cells.length} cells in row`);
+                        console.log(`  Found parent row with tag: ${row.tagName}`);
+                        
+                        // Find all time slot cells/divs in this row
+                        const cells = row.querySelectorAll('td');
+                        console.log(`  Found ${cells.length} td cells in row`);
+                        
+                        if (cells.length === 0) {
+                            // Maybe it's divs instead
+                            const divCells = row.querySelectorAll('div[class*="cell"], div[class*="slot"]');
+                            console.log(`  Found ${divCells.length} div cells in row`);
+                        }
                         
                         // Search backwards from the end to find the last bookable slot
                         for (let i = cells.length - 1; i >= 0; i--) {
                             const cell = cells[i];
-                            const cellLink = cell.querySelector('a[href*="reserve"]');
+                            const cellLink = cell.querySelector('a');
                             
                             if (cellLink) {
                                 // This is a bookable slot
                                 console.log(`  Found bookable slot at cell ${i}`);
-                                
-                                // Check if it's available (not reserved/unavailable)
-                                const isAvailable = cell.classList.contains('s-lc-eq-checkout-available') ||
-                                                   cell.querySelector('.s-lc-eq-available') ||
-                                                   (!cell.classList.contains('s-lc-eq-checkout-reserved') &&
-                                                    !cell.classList.contains('s-lc-eq-checkout-unavailable') &&
-                                                    !cell.classList.contains('s-lc-eq-checkout-disabled') &&
-                                                    !cellLink.classList.contains('disabled'));
-                                
-                                console.log(`  Cell ${i} available: ${isAvailable}`);
+                                console.log(`  Cell link href: ${cellLink.href}`);
                                 console.log(`  Cell classes: ${cell.className}`);
                                 
+                                // Check if it's available
+                                const hasGreenClass = cell.className.includes('available') || 
+                                                     cell.className.includes('green');
+                                const hasRedClass = cell.className.includes('reserved') || 
+                                                   cell.className.includes('unavailable') ||
+                                                   cell.className.includes('disabled');
+                                
+                                const isAvailable = !hasRedClass;
+                                
+                                console.log(`  hasGreenClass: ${hasGreenClass}, hasRedClass: ${hasRedClass}, isAvailable: ${isAvailable}`);
+                                
                                 if (isAvailable) {
-                                    // Try to get date/time info
-                                    let dateInfo = 'Unknown';
-                                    const dataDate = cell.getAttribute('data-date');
-                                    const dataTime = cell.getAttribute('data-time');
-                                    
-                                    if (dataDate) dateInfo = dataDate;
-                                    if (dataTime) dateInfo += ' ' + dataTime;
-                                    
                                     results.push({
                                         equipment: equipmentName,
-                                        date: dateInfo,
+                                        date: 'Found',
                                         cellIndex: i
                                     });
                                 }
