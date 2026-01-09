@@ -246,7 +246,6 @@ No action needed.
         console.log('\n' + message);
         
         // Write to GitHub Actions summary
-        const fs = require('fs');
         let summary;
         
         if (allAvailableDates.length > 0 && (hasNewAvailability || isFirstRun)) {
