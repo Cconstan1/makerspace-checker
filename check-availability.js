@@ -88,7 +88,7 @@ async function checkAvailability() {
   });
 
   try {
-    const page = await browser.page();
+    const page = await browser.newPage();
     
     console.log('Loading makerspace page...');
     await page.goto('https://libcal.jocolibrary.org/reserve/makerspace', {
