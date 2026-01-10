@@ -198,7 +198,7 @@ async function checkAvailability() {
 
       await page.click('button.fc-next-button');
       console.log('Clicked next button');
-      await page.waitForTimeout(3000);
+      await new Promise(resolve => setTimeout(resolve, 3000));
       pageNum++;
     }
 
