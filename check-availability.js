@@ -58,7 +58,7 @@ async function sendEmailNotification(newAvailability, isFirstRun) {
 
   body += `\n🔗 Book now: https://libcal.jocolibrary.org/reserve/makerspace\n`;
   body += `\n---\n`;
-  body += `This checker runs every 15 minutes monitoring overnight slots for:\n`;
+  body += `This checker runs every 10 minutes monitoring overnight slots for:\n`;
   EQUIPMENT_TO_MONITOR.forEach(eq => {
     body += `  • ${eq}\n`;
   });
