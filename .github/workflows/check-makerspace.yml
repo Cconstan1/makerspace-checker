@@ -1,53 +1,49 @@
-name: Check 3D Printer Availability
+name: Check MakerSpace Availability
 
 on:
   schedule:
-    # Run every 15 minutes
-    - cron: '*/15 * * * *'
-  workflow_dispatch: # Allows manual trigger for testing
+    - cron: '*/15 * * * *'  # Every 15 minutes
+  workflow_dispatch:  # Allow manual trigger
+
+permissions:
+  contents: write  # Need write permission to commit state file
 
 jobs:
   check-availability:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-    
-    - name: Set up Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18'
-    
-    - name: Install dependencies
-      run: |
-        npm install puppeteer
-        npm install nodemailer
-    
-    - name: Check availability and send email
-      env:
-        EMAIL_TO: cconstan1@gmail.com
-      run: |
-        node check-availability.js
-    
-    - name: Upload screenshot
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: calendar-screenshot
-        path: calendar-page1.png
+      - name: Checkout repository
+        uses: actions/checkout@v3
         
-    - name: Upload screenshot on failure
-      if: failure()
-      uses: actions/upload-artifact@v4
-      with:
-        name: error-screenshot
-        path: error.png
-    
-    - name: Commit state file
-      run: |
-        git config --local user.email "github-actions[bot]@users.noreply.github.com"
-        git config --local user.name "github-actions[bot]"
-        git add -f previous-state.json || true
-        git commit -m "Update availability state" || true
-        git push || true
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          
+      - name: Install dependencies
+        run: |
+          npm install puppeteer
+          npm install nodemailer
+          
+      - name: Run availability check
+        env:
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: node check-availability.js
+        
+      - name: Upload screenshot
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: calendar-screenshot
+          path: calendar-page1.png
+          
+      - name: Commit state file
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add -f previous-state.json || true
+          git commit -m "Update availability state" || true
+          git push || true
