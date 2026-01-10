@@ -1,299 +1,290 @@
 const puppeteer = require('puppeteer');
+const fs = require('fs').promises;
+const nodemailer = require('nodemailer');
 
-// Helper function to wait/delay
-function delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+const EQUIPMENT_TO_MONITOR = [
+  'Soldering Iron & Electronics Rework Station',
+  'Vinyl Cutter & Heat Press w/PC',
+  'Resin Printer -Formlabs Form 3 & Dell PC'
+];
+
+const STATE_FILE = 'previous-state.json';
+
+// Email configuration
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
+
+async function sendEmailNotification(newAvailability, isFirstRun) {
+  const emailTo = process.env.EMAIL_TO;
+  
+  if (!emailTo) {
+    console.log('⚠️ EMAIL_TO not configured - skipping email');
+    return;
+  }
+
+  // Build email content
+  let subject = isFirstRun 
+    ? '🎉 MakerSpace Availability Checker Started'
+    : `🎉 NEW MakerSpace Equipment Available! (${newAvailability.length} slot${newAvailability.length > 1 ? 's' : ''})`;
+
+  let body = isFirstRun
+    ? 'MakerSpace availability checker is now running!\n\nCurrently available overnight printing slots:\n\n'
+    : 'NEW availability detected for overnight printing slots:\n\n';
+
+  // Group by date for better readability
+  const byDate = {};
+  newAvailability.forEach(slot => {
+    if (!byDate[slot.date]) {
+      byDate[slot.date] = [];
+    }
+    byDate[slot.date].push(slot.equipment);
+  });
+
+  // Sort dates chronologically
+  const sortedDates = Object.keys(byDate).sort((a, b) => {
+    return new Date(a) - new Date(b);
+  });
+
+  sortedDates.forEach(date => {
+    body += `📅 ${date}\n`;
+    byDate[date].forEach(equipment => {
+      body += `   • ${equipment}\n`;
+    });
+    body += '\n';
+  });
+
+  body += `\n🔗 Book now: https://libcal.jocolibrary.org/reserve/makerspace\n`;
+  body += `\n---\n`;
+  body += `This checker runs every 15 minutes monitoring overnight slots for:\n`;
+  EQUIPMENT_TO_MONITOR.forEach(eq => {
+    body += `  • ${eq}\n`;
+  });
+
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: emailTo,
+    subject: subject,
+    text: body
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Email sent to ${emailTo}`);
+  } catch (error) {
+    console.error('❌ Failed to send email:', error.message);
+    throw error;
+  }
 }
 
 async function checkAvailability() {
-    const browser = await puppeteer.launch({
-        headless: 'new',
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
+
+  try {
+    const page = await browser.page();
+    
+    console.log('Loading makerspace page...');
+    await page.goto('https://libcal.jocolibrary.org/reserve/makerspace', {
+      waitUntil: 'networkidle0',
+      timeout: 60000
     });
+
+    await page.screenshot({ path: 'calendar-page1.png' });
+    console.log('Screenshot saved to calendar-page1.png');
+
+    let allAvailableDates = [];
+    let pageNum = 1;
+
+    console.log('Starting to check all pages...');
+
+    while (true) {
+      console.log(`Checking page ${pageNum}...`);
+
+      const availableOnPage = await page.evaluate((equipmentList) => {
+        console.log('=== Starting page evaluation ===');
+        
+        const slots = document.querySelectorAll('a.fc-timeline-event');
+        console.log(`Found ${slots.length} total event slots`);
+        
+        const available = [];
+        const equipmentRows = {};
+
+        slots.forEach(slot => {
+          const title = slot.getAttribute('title') || '';
+          const ariaLabel = slot.getAttribute('aria-label') || '';
+          
+          const equipmentMatch = title.match(/^(.+?)\s+Reserved/) || title.match(/^(.+?)\s+Available/);
+          if (!equipmentMatch) return;
+          
+          const equipment = equipmentMatch[1].trim();
+          if (!equipmentList.includes(equipment)) return;
+
+          const dateMatch = ariaLabel.match(/(\w+day,\s+\w+\s+\d+,\s+\d{4})/);
+          if (!dateMatch) return;
+          
+          const eventDate = dateMatch[1];
+          const timeMatch = ariaLabel.match(/(\d{1,2}:\d{2}(?:am|pm))/);
+          const eventTime = timeMatch ? timeMatch[1] : '';
+
+          if (!equipmentRows[equipment]) {
+            equipmentRows[equipment] = {};
+          }
+          if (!equipmentRows[equipment][eventDate]) {
+            equipmentRows[equipment][eventDate] = [];
+          }
+
+          equipmentRows[equipment][eventDate].push({
+            time: eventTime,
+            isAvailable: title.includes('Available')
+          });
+        });
+
+        Object.keys(equipmentRows).forEach(equipment => {
+          Object.keys(equipmentRows[equipment]).forEach(date => {
+            const events = equipmentRows[equipment][date];
+            events.sort((a, b) => {
+              const timeToMinutes = (t) => {
+                const match = t.match(/(\d{1,2}):(\d{2})(am|pm)/);
+                if (!match) return 0;
+                let hours = parseInt(match[1]);
+                const minutes = parseInt(match[2]);
+                const isPM = match[3] === 'pm';
+                if (isPM && hours !== 12) hours += 12;
+                if (!isPM && hours === 12) hours = 0;
+                return hours * 60 + minutes;
+              };
+              return timeToMinutes(b.time) - timeToMinutes(a.time);
+            });
+
+            const lastEvent = events[0];
+            const status = lastEvent.isAvailable ? 'AVAILABLE' : 'Reserved';
+            const symbol = lastEvent.isAvailable ? '✓' : '✗';
+            
+            console.log(`  ${symbol} ${equipment} - ${date}: Last hour ${status}`);
+
+            if (lastEvent.isAvailable) {
+              available.push({
+                equipment: equipment,
+                date: date,
+                dateTime: `${lastEvent.time} ${date}`
+              });
+            }
+          });
+        });
+
+        console.log(`=== Page evaluation complete. Found ${available.length} last-hour available slots ===`);
+        return available;
+      }, EQUIPMENT_TO_MONITOR);
+
+      console.log(`Page ${pageNum} found:`, availableOnPage);
+      allAvailableDates.push(...availableOnPage);
+
+      const hasNextButton = await page.evaluate(() => {
+        const nextButton = document.querySelector('button.fc-next-button');
+        return nextButton && !nextButton.disabled;
+      });
+
+      if (!hasNextButton) {
+        console.log('Next button is disabled - reached end of calendar');
+        break;
+      }
+
+      await page.click('button.fc-next-button');
+      console.log('Clicked next button');
+      await page.waitForTimeout(3000);
+      pageNum++;
+    }
+
+    // Sort by date
+    allAvailableDates.sort((a, b) => {
+      return new Date(a.date) - new Date(b.date);
+    });
+
+    console.log('Total available dates found:', allAvailableDates);
+
+    // Load previous state
+    let previousState = [];
+    let isFirstRun = false;
     
     try {
-        const page = await browser.newPage();
-        await page.setViewport({ width: 1920, height: 1080 });
-        
-        console.log('Loading makerspace page...');
-        await page.goto('https://libcal.jocolibrary.org/reserve/makerspace', {
-            waitUntil: 'networkidle2',
-            timeout: 30000
-        });
-        
-        // Capture browser console logs
-        page.on('console', msg => {
-            console.log('BROWSER:', msg.text());
-        });
-        
-        // Wait for the calendar to load
-        await page.waitForSelector('table', { timeout: 10000 });
-        await delay(3000); // Extra wait for dynamic content
-        
-        // Take a screenshot to see what we're working with
-        await page.screenshot({ path: 'calendar-page1.png', fullPage: true });
-        console.log('Screenshot saved to calendar-page1.png');
-        
-        console.log('Starting to check all pages...');
-        
-        const allAvailableDates = [];
-        let pageNumber = 1;
-        
-        while (true) {
-            console.log(`Checking page ${pageNumber}...`);
-            
-            // Extract availability from current page
-            const availableDates = await page.evaluate(() => {
-                const results = [];
-                
-                console.log('=== Starting page evaluation ===');
-                
-                // Find ALL event slots (both available and reserved)
-                const allEvents = document.querySelectorAll('a.fc-timeline-event');
-                console.log(`Found ${allEvents.length} total event slots`);
-                
-                // Group by date and equipment to find the LAST bookable slot
-                const dateEquipmentSlots = {};
-                
-                allEvents.forEach(event => {
-                    const title = event.getAttribute('title') || event.getAttribute('aria-label') || '';
-                    
-                    // Extract equipment name and date/time from title
-                    // Format: "7:00pm Tuesday, January 13, 2026 - Equipment Name - Status"
-                    const match = title.match(/(.+?) - (.+?) - (Available|Reserved)/);
-                    
-                    if (match) {
-                        const dateTimeStr = match[1].trim();
-                        const equipmentName = match[2].trim();
-                        const status = match[3].trim();
-                        
-                        // Check if this is one of our target equipment
-                        const isTargetEquipment = equipmentName.includes('Soldering Iron & Electronics Rework Station') || 
-                                                 equipmentName.includes('Vinyl Cutter & Heat Press w/PC') ||
-                                                 equipmentName.includes('Resin Printer -Formlabs Form 3 & Dell PC');
-                        
-                        if (isTargetEquipment) {
-                            // Extract just the date (everything after the time)
-                            const dateMatch = dateTimeStr.match(/\d{1,2}:\d{2}[ap]m\s+(.+)/);
-                            const dateStr = dateMatch ? dateMatch[1] : dateTimeStr;
-                            
-                            // Extract time for comparison (convert to 24hr for sorting)
-                            const timeMatch = dateTimeStr.match(/(\d{1,2}):(\d{2})([ap]m)/);
-                            let timeValue = 0;
-                            if (timeMatch) {
-                                let hour = parseInt(timeMatch[1]);
-                                const minute = parseInt(timeMatch[2]);
-                                const ampm = timeMatch[3];
-                                if (ampm === 'pm' && hour !== 12) hour += 12;
-                                if (ampm === 'am' && hour === 12) hour = 0;
-                                timeValue = hour * 60 + minute;
-                            }
-                            
-                            const key = `${dateStr}|${equipmentName}`;
-                            
-                            // Keep the LATEST time slot for this date+equipment combo
-                            if (!dateEquipmentSlots[key] || timeValue > dateEquipmentSlots[key].timeValue) {
-                                dateEquipmentSlots[key] = {
-                                    equipment: equipmentName,
-                                    date: dateStr,
-                                    dateTime: dateTimeStr,
-                                    timeValue: timeValue,
-                                    status: status
-                                };
-                            }
-                        }
-                    }
-                });
-                
-                // Filter to only include slots where the LAST hour is Available
-                Object.values(dateEquipmentSlots).forEach(slot => {
-                    if (slot.status === 'Available') {
-                        results.push({
-                            equipment: slot.equipment,
-                            date: slot.date,
-                            dateTime: slot.dateTime
-                        });
-                        console.log(`  ✓ ${slot.equipment} - ${slot.date}: Last hour AVAILABLE`);
-                    } else {
-                        console.log(`  ✗ ${slot.equipment} - ${slot.date}: Last hour ${slot.status}`);
-                    }
-                });
-                
-                console.log(`=== Page evaluation complete. Found ${results.length} last-hour available slots ===`);
-                return results;
-            });
-            
-            console.log(`Page ${pageNumber} found:`, availableDates);
-            allAvailableDates.push(...availableDates);
-            
-            // Check if next button is disabled (this is the real indicator we're at the end)
-            const nextButtonDisabled = await page.evaluate(() => {
-                const nextBtn = document.querySelector('button.fc-next-button');
-                return nextBtn ? nextBtn.disabled : true;
-            });
-            
-            if (nextButtonDisabled) {
-                console.log('Next button is disabled - reached end of calendar');
-                break;
-            }
-            
-            // Try to click the next button
-            try {
-                await page.waitForSelector('button.fc-next-button', { timeout: 5000 });
-                await page.click('button.fc-next-button');
-                console.log('Clicked next button');
-                await delay(3000); // Wait for new data to load
-                pageNumber++;
-            } catch (error) {
-                console.log('Could not click next button:', error.message);
-                break;
-            }
-            
-            // Safety limit
-            if (pageNumber > 10) {
-                console.log('Reached safety limit of 10 pages');
-                break;
-            }
-        }
-        
-        console.log('Total available dates found:', allAvailableDates);
-        
-        // Read previous state to detect NEW availability
-        const fs = require('fs');
-        let previousState = [];
-        try {
-            const stateData = fs.readFileSync('previous-state.json', 'utf8');
-            previousState = JSON.parse(stateData);
-            console.log('Loaded previous state:', previousState);
-        } catch (error) {
-            console.log('No previous state found (first run)');
-        }
-        
-        // Find NEW available dates (not in previous state)
-        const newAvailability = allAvailableDates.filter(current => {
-            return !previousState.some(prev => 
-                prev.equipment === current.equipment && prev.date === current.date
-            );
-        });
-        
-        console.log('New availability detected:', newAvailability);
-        
-        // Save current state for next run
-        try {
-            fs.writeFileSync('previous-state.json', JSON.stringify(allAvailableDates, null, 2));
-            console.log('Saved current state');
-        } catch (error) {
-            console.error('Error saving state:', error);
-        }
-        
-        // Only generate output if there's NEW availability (or first run)
-        const isFirstRun = previousState.length === 0;
-        const hasNewAvailability = newAvailability.length > 0;
-        
-        // Format results grouped by date
-        let message;
-        if (allAvailableDates.length === 0) {
-            message = `
-🖨️ 3D PRINTER AVAILABILITY CHECK
-================================
-
-❌ None available
-
-No available overnight printing slots (last hour of the day) found over the next 14 days.
-
-Check again tomorrow or visit: https://libcal.jocolibrary.org/reserve/makerspace
-            `.trim();
-        } else if (hasNewAvailability || isFirstRun) {
-            // Group by date
-            const byDate = {};
-            const datesToShow = isFirstRun ? allAvailableDates : newAvailability;
-            
-            datesToShow.forEach(item => {
-                if (!byDate[item.date]) {
-                    byDate[item.date] = [];
-                }
-                byDate[item.date].push(item.equipment);
-            });
-            
-            const dateList = Object.keys(byDate)
-                .sort((a, b) => new Date(a) - new Date(b)) // Sort dates chronologically
-                .map(date => `${date}:\n    - ${byDate[date].join('\n    - ')}`)
-                .join('\n\n  • ');
-            
-            const header = isFirstRun ? '✅ Currently Available' : '🆕 NEW Availability Detected!';
-            
-            message = `
-🖨️ 3D PRINTER AVAILABILITY CHECK
-================================
-
-${header}
-
-  • ${dateList}
-
-Book now at: https://libcal.jocolibrary.org/reserve/makerspace
-            `.trim();
-        } else {
-            message = `
-🖨️ 3D PRINTER AVAILABILITY CHECK
-================================
-
-✓ No changes
-
-Same availability as last check (${allAvailableDates.length} slots still available).
-No action needed.
-            `.trim();
-        }
-        
-        console.log('\n' + message);
-        
-        // Write to GitHub Actions summary
-        let summary;
-        
-        if (allAvailableDates.length > 0 && (hasNewAvailability || isFirstRun)) {
-            // Group by date
-            const byDate = {};
-            const datesToShow = isFirstRun ? allAvailableDates : newAvailability;
-            
-            datesToShow.forEach(item => {
-                if (!byDate[item.date]) {
-                    byDate[item.date] = [];
-                }
-                byDate[item.date].push(item.equipment);
-            });
-            
-            const dateLines = Object.keys(byDate)
-                .sort((a, b) => new Date(a) - new Date(b)) // Sort dates chronologically
-                .map(date => `- **${date}**\n${byDate[date].map(eq => `  - ${eq}`).join('\n')}`)
-                .join('\n');
-            
-            const header = isFirstRun ? 'Currently Available' : '🆕 NEW Availability Detected!';
-            
-            summary = `# 3D Printer Overnight Availability\n\n## ${header}\n\n${dateLines}\n\n[Visit Booking Page](https://libcal.jocolibrary.org/reserve/makerspace)`;
-        } else if (allAvailableDates.length === 0) {
-            summary = `# 3D Printer Overnight Availability\n\n## ❌ None Available\n\nNo overnight printing slots found for the next 14 days.\n\n[Visit Booking Page](https://libcal.jocolibrary.org/reserve/makerspace)`;
-        } else {
-            summary = `# 3D Printer Overnight Availability\n\n## ✓ No Changes\n\nSame availability as last check (${allAvailableDates.length} slots still available).\n\n[Visit Booking Page](https://libcal.jocolibrary.org/reserve/makerspace)`;
-        }
-        
-        fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY || 'summary.md', summary);
-        
-        return { success: true, availableDates: allAvailableDates, message };
-        
+      const data = await fs.readFile(STATE_FILE, 'utf8');
+      previousState = JSON.parse(data);
     } catch (error) {
-        console.error('Error checking availability:', error);
-        try {
-            await page.screenshot({ path: 'error.png', fullPage: true });
-            console.log('Error screenshot saved');
-        } catch (screenshotError) {
-            console.error('Could not take screenshot:', screenshotError);
-        }
-        throw error;
-    } finally {
-        await browser.close();
+      console.log('No previous state found (first run)');
+      isFirstRun = true;
     }
+
+    // Compare states - find NEW availability
+    const previousKeys = new Set(
+      previousState.map(item => `${item.equipment}-${item.date}`)
+    );
+    
+    const currentAvailable = allAvailableDates;
+    const newAvailability = currentAvailable.filter(current => {
+      const key = `${current.equipment}-${current.date}`;
+      return !previousKeys.has(key);
+    });
+
+    const hasNewAvailability = newAvailability.length > 0;
+
+    if (hasNewAvailability) {
+      console.log('New availability detected:', newAvailability);
+    } else if (!isFirstRun) {
+      console.log('No new availability detected');
+    }
+
+    // Send email if there's new availability or first run
+    if (hasNewAvailability || isFirstRun) {
+      await sendEmailNotification(newAvailability, isFirstRun);
+    } else {
+      console.log('📧 No new availability - no email sent');
+    }
+
+    // Save current state
+    await fs.writeFile(STATE_FILE, JSON.stringify(allAvailableDates, null, 2));
+    console.log('Saved current state');
+
+    // Format output for GitHub Actions summary
+    console.log('\n🖨️ 3D PRINTER AVAILABILITY CHECK');
+    console.log('================================\n');
+    
+    if (allAvailableDates.length === 0) {
+      console.log('❌ No overnight slots currently available\n');
+    } else {
+      console.log('✅ Currently Available\n');
+      
+      const byDate = {};
+      allAvailableDates.forEach(slot => {
+        if (!byDate[slot.date]) {
+          byDate[slot.date] = [];
+        }
+        byDate[slot.date].push(slot.equipment);
+      });
+
+      Object.keys(byDate).forEach(date => {
+        console.log(`  • ${date}:`);
+        byDate[date].forEach(equipment => {
+          console.log(`    - ${equipment}`);
+        });
+        console.log('');
+      });
+    }
+
+    console.log('Book now at: https://libcal.jocolibrary.org/reserve/makerspace');
+
+  } finally {
+    await browser.close();
+  }
 }
 
 checkAvailability().catch(error => {
-    console.error('Failed:', error);
-    process.exit(1);
+  console.error('Error:', error);
+  process.exit(1);
 });
