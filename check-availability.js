@@ -3,7 +3,9 @@ const fs = require('fs').promises;
 const nodemailer = require('nodemailer');
 
 const EQUIPMENT_TO_MONITOR = [
-  '3D Printer - Prusa XL 5-Toolhead'
+  'Soldering Iron & Electronics Rework Station',
+  'Vinyl Cutter & Heat Press w/PC',
+  'Resin Printer -Formlabs Form 3 & Dell PC'
 ];
 
 const STATE_FILE = 'previous-state.json';
@@ -16,6 +18,30 @@ const transporter = nodemailer.createTransport({
     pass: process.env.EMAIL_PASS
   }
 });
+
+function getDaysAway(dateString) {
+  const targetDate = new Date(dateString);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  targetDate.setHours(0, 0, 0, 0);
+  
+  const diffTime = targetDate - today;
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  
+  if (diffDays === 0) return 'TODAY';
+  if (diffDays === 1) return 'tomorrow (1 day away)';
+  return `${diffDays} days away`;
+}
+
+function getCalendarUrl(dateString) {
+  // Parse the date to get the calendar page URL
+  const date = new Date(dateString);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  
+  return `https://libcal.jocolibrary.org/reserve/makerspace?date=${year}-${month}-${day}`;
+}
 
 async function sendEmailNotification(newAvailability, isFirstRun) {
   const emailTo = process.env.EMAIL_TO;
@@ -48,15 +74,27 @@ async function sendEmailNotification(newAvailability, isFirstRun) {
     return new Date(a) - new Date(b);
   });
 
+  // Find the earliest date for the direct booking link
+  const earliestDate = sortedDates.length > 0 ? sortedDates[0] : null;
+  const bookingUrl = earliestDate 
+    ? getCalendarUrl(earliestDate)
+    : 'https://libcal.jocolibrary.org/reserve/makerspace';
+
   sortedDates.forEach(date => {
-    body += `📅 ${date}\n`;
+    const daysAway = getDaysAway(date);
+    body += `📅 ${date} (${daysAway})\n`;
     byDate[date].forEach(equipment => {
       body += `   • ${equipment}\n`;
     });
     body += '\n';
   });
 
-  body += `\n🔗 Book now: https://libcal.jocolibrary.org/reserve/makerspace\n`;
+  if (earliestDate) {
+    body += `\n🔗 Book the earliest date (${earliestDate}): ${bookingUrl}\n`;
+  } else {
+    body += `\n🔗 Book now: ${bookingUrl}\n`;
+  }
+  
   body += `\n---\n`;
   body += `This checker runs every 10 minutes monitoring overnight slots for:\n`;
   EQUIPMENT_TO_MONITOR.forEach(eq => {
