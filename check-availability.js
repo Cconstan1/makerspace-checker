@@ -216,6 +216,7 @@ Check again tomorrow or visit: https://libcal.jocolibrary.org/reserve/makerspace
             });
             
             const dateList = Object.keys(byDate)
+                .sort((a, b) => new Date(a) - new Date(b)) // Sort dates chronologically
                 .map(date => `${date}:\n    - ${byDate[date].join('\n    - ')}`)
                 .join('\n\n  • ');
             
@@ -261,6 +262,7 @@ No action needed.
             });
             
             const dateLines = Object.keys(byDate)
+                .sort((a, b) => new Date(a) - new Date(b)) // Sort dates chronologically
                 .map(date => `- **${date}**\n${byDate[date].map(eq => `  - ${eq}`).join('\n')}`)
                 .join('\n');
             
