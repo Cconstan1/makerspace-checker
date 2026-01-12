@@ -137,10 +137,11 @@ async function checkAvailability() {
       console.log(`Checking page ${pageNum}...`);
 
       const availableOnPage = await page.evaluate((equipmentList) => {
-        console.log('=== Starting page evaluation ===');
+        const debugLogs = [];
+        debugLogs.push('=== Starting page evaluation ===');
         
         const slots = document.querySelectorAll('a.fc-timeline-event');
-        console.log(`Found ${slots.length} total event slots`);
+        debugLogs.push(`Found ${slots.length} total event slots`);
         
         const available = [];
         const equipmentRows = {};
@@ -199,7 +200,7 @@ async function checkAvailability() {
             const status = lastEvent.isAvailable ? 'AVAILABLE' : 'Reserved';
             const symbol = lastEvent.isAvailable ? '✓' : '✗';
             
-            console.log(`  ${symbol} ${equipment} - ${date}: Last hour ${status}`);
+            debugLogs.push(`  ${symbol} ${equipment} - ${date}: Last hour ${status}`);
 
             if (lastEvent.isAvailable) {
               available.push({
@@ -211,13 +212,17 @@ async function checkAvailability() {
           });
         });
 
-        console.log('All equipment found on this page:', Array.from(foundEquipment));
-        console.log(`=== Page evaluation complete. Found ${available.length} last-hour available slots ===`);
-        return available;
+        debugLogs.push('All equipment found on this page: ' + JSON.stringify(Array.from(foundEquipment)));
+        debugLogs.push(`=== Page evaluation complete. Found ${available.length} last-hour available slots ===`);
+        
+        return { available, debugLogs };
       }, EQUIPMENT_TO_MONITOR);
 
-      console.log(`Page ${pageNum} found:`, availableOnPage);
-      allAvailableDates.push(...availableOnPage);
+      // Print debug logs
+      availableOnPage.debugLogs.forEach(log => console.log(log));
+      
+      console.log(`Page ${pageNum} found:`, availableOnPage.available);
+      allAvailableDates.push(...availableOnPage.available);
 
       const hasNextButton = await page.evaluate(() => {
         const nextButton = document.querySelector('button.fc-next-button');
