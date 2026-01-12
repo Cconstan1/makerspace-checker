@@ -151,7 +151,8 @@ async function checkAvailability() {
           const title = slot.getAttribute('title') || '';
           const ariaLabel = slot.getAttribute('aria-label') || '';
           
-          const equipmentMatch = title.match(/^(.+?)\s+Reserved/) || title.match(/^(.+?)\s+Available/);
+          // Extract equipment name from title (not aria-label)
+          const equipmentMatch = title.match(/^(.+?)\s+(?:Reserved|Available)/);
           if (!equipmentMatch) return;
           
           const equipment = equipmentMatch[1].trim();
@@ -212,7 +213,9 @@ async function checkAvailability() {
           });
         });
 
-        debugLogs.push('All equipment found on this page: ' + JSON.stringify(Array.from(foundEquipment)));
+        const monitoredEquipment = equipmentList.join(', ');
+        debugLogs.push(`Monitoring: ${monitoredEquipment}`);
+        debugLogs.push(`All equipment found on page (first 10): ${JSON.stringify(Array.from(allFoundEquipment).slice(0, 10))}`);
         debugLogs.push(`=== Page evaluation complete. Found ${available.length} last-hour available slots ===`);
         
         return { available, debugLogs };
