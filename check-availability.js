@@ -3,9 +3,7 @@ const fs = require('fs').promises;
 const nodemailer = require('nodemailer');
 
 const EQUIPMENT_TO_MONITOR = [
-  'Soldering Iron & Electronics Rework Station',
-  'Vinyl Cutter & Heat Press w/PC',
-  'Resin Printer -Formlabs Form 3 & Dell PC'
+  '3D Printer - Prusa XL 5-Toolhead'
 ];
 
 const STATE_FILE = 'previous-state.json';
