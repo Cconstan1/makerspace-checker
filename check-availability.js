@@ -216,6 +216,7 @@ async function checkAvailability() {
         const monitoredEquipment = equipmentList.join(', ');
         debugLogs.push(`Monitoring: ${monitoredEquipment}`);
         debugLogs.push(`All equipment found on page (first 10): ${JSON.stringify(Array.from(allFoundEquipment).slice(0, 10))}`);
+        debugLogs.push(`3D Printer in list: ${allFoundEquipment.has('3D Printer - Prusa XL 5-Toolhead')}`);
         debugLogs.push(`=== Page evaluation complete. Found ${available.length} last-hour available slots ===`);
         
         return { available, debugLogs };
