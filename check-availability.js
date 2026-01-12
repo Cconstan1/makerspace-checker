@@ -145,7 +145,7 @@ async function checkAvailability() {
         
         const available = [];
         const equipmentRows = {};
-        const foundEquipment = new Set();
+        const allfoundEquipment = new Set();
 
         slots.forEach(slot => {
           const title = slot.getAttribute('title') || '';
@@ -156,7 +156,7 @@ async function checkAvailability() {
           if (!equipmentMatch) return;
           
           const equipment = equipmentMatch[1].trim();
-          foundEquipment.add(equipment);
+          allfoundEquipment.add(equipment);
           
           if (!equipmentList.includes(equipment)) return;
 
