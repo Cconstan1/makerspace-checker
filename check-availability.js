@@ -150,9 +150,10 @@ async function checkAvailability() {
           const title = slot.getAttribute('title') || '';
           const ariaLabel = slot.getAttribute('aria-label') || '';
           
-          const equipmentMatch = title.match(/^(.+?)\s+(?:Reserved|Available)$/);
+          // Title format: "6:00pm Monday, January 26, 2026 - 3D Printer - Prusa XL 5-Toolhead - Available"
+          // We need to extract just the equipment name (between the date and status)
+          const equipmentMatch = title.match(/\d{4}\s+-\s+(.+?)\s+-\s+(?:Reserved|Available)/);
           if (!equipmentMatch) {
-            allFoundEquipment.add(`UNPARSED: ${title}`);
             return;
           }
           
