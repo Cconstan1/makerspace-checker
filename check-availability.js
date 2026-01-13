@@ -8,7 +8,6 @@ const EQUIPMENT_TO_MONITOR = [
 
 const STATE_FILE = 'previous-state.json';
 
-// Email configuration
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -145,18 +144,20 @@ async function checkAvailability() {
         
         const available = [];
         const equipmentRows = {};
-        const allfoundEquipment = new Set();
+        const allFoundEquipment = new Set();
 
         slots.forEach(slot => {
           const title = slot.getAttribute('title') || '';
           const ariaLabel = slot.getAttribute('aria-label') || '';
           
-          // Extract equipment name from title (not aria-label)
-          const equipmentMatch = title.match(/^(.+?)\s+(?:Reserved|Available)/);
-          if (!equipmentMatch) return;
+          const equipmentMatch = title.match(/^(.+?)\s+(?:Reserved|Available)$/);
+          if (!equipmentMatch) {
+            allFoundEquipment.add(`UNPARSED: ${title}`);
+            return;
+          }
           
           const equipment = equipmentMatch[1].trim();
-          allfoundEquipment.add(equipment);
+          allFoundEquipment.add(equipment);
           
           if (!equipmentList.includes(equipment)) return;
 
@@ -222,7 +223,6 @@ async function checkAvailability() {
         return { available, debugLogs };
       }, EQUIPMENT_TO_MONITOR);
 
-      // Print debug logs
       availableOnPage.debugLogs.forEach(log => console.log(log));
       
       console.log(`Page ${pageNum} found:`, availableOnPage.available);
