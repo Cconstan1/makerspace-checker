@@ -222,7 +222,7 @@ async function checkAvailability() {
     
     // Check for new availability
     const newSlots = allAvailableSlots.filter(slot => 
-      !previousState.availableSlots.some(prevSlot => 
+      !previousState.availableSlots || !previousState.availableSlots.some(prevSlot => 
         prevSlot.date === slot.date && prevSlot.time === slot.time
       )
     );
