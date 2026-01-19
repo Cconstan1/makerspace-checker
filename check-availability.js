@@ -3,7 +3,7 @@ const nodemailer = require('nodemailer');
 const fs = require('fs');
 const { google } = require('googleapis');
 
-const TARGET_EQUIPMENT = 'Laser Cutter - 80w Trotec Speedy 300'; // CHECK EQUIPMENT NAME
+const TARGET_EQUIPMENT = 'Sewing Machine - Janome Skyline S5'; // CHECK EQUIPMENT NAME
 const STATE_FILE = 'previous-state.json';
 
 // Email configuration
