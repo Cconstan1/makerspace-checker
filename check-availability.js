@@ -2,7 +2,7 @@ const puppeteer = require('puppeteer');
 const nodemailer = require('nodemailer');
 const fs = require('fs');
 
-const TARGET_EQUIPMENT = '3D Printer - Prusa XL 5-Toolhead'; // CHECK EQUIPMENT NAME (match booking-server.js file)
+const TARGET_EQUIPMENT = '3D Printer - Prusa XL 5-Toolhead'; // CHECK EQUIPMENT NAME
 const STATE_FILE = 'previous-state.json';
 
 // Email configuration
@@ -60,28 +60,22 @@ function formatDateWithDaysAway(dateStr) {
   }
 }
 
-// Removed navigateToBookingForm - server handles booking now
-
 async function sendEmail(availableSlots) {
   let emailBody = `🎉 NEW OVERNIGHT SLOTS AVAILABLE!\n\n`;
   emailBody += `📍 Equipment: ${TARGET_EQUIPMENT}\n\n`;
-  emailBody += `🖥️ CLICK HERE TO BOOK:\n`;
-  emailBody += `http://localhost:3000\n\n`;
-  emailBody += `💡 Make sure your booking server is running!\n`;
-  emailBody += `   Double-click the "start-server.bat" shortcut on your desktop.\n\n`;
   emailBody += `📅 AVAILABLE DATES (Last Bookable Hour):\n`;
   
   availableSlots.forEach(slot => {
     emailBody += `   • ${formatDateWithDaysAway(slot.date)} at ${slot.time}\n`;
   });
   
-  emailBody += `\n⚡ Click the link above, then click "Book This" for your preferred date!\n`;
-  emailBody += `\n🖥️ Reminder: Your computer must be on with the booking server running.\n`;
+  emailBody += `\n🔗 Book here: https://libcal.jocolibrary.org/reserve/makerspace\n`;
+  emailBody += `\n⚡ Overnight slots fill fast - book now!\n`;
   
   const mailOptions = {
     from: process.env.EMAIL_USER,
     to: process.env.EMAIL_TO,
-    subject: '🎉 New MakerSpace Slots - Click to Book!',
+    subject: '🎉 3D Printer Overnight Slots Available!',
     text: emailBody
   };
 
@@ -231,7 +225,7 @@ async function checkAvailability() {
       console.log(`\n🆕 NEW availability detected for ${newSlots.length} slot(s)!`);
       console.log('New slots:', newSlots);
       
-      // Send email with localhost link
+      // Send email notification
       await sendEmail(newSlots);
     } else if (allAvailableSlots.length > 0) {
       console.log('\n✓ Availability unchanged (same slots as before)');
