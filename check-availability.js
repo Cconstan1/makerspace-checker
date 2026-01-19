@@ -1,6 +1,7 @@
 const puppeteer = require('puppeteer');
 const nodemailer = require('nodemailer');
 const fs = require('fs');
+const { google } = require('googleapis');
 
 const TARGET_EQUIPMENT = '3D Printer - Prusa XL 5-Toolhead'; // CHECK EQUIPMENT NAME
 const STATE_FILE = 'previous-state.json';
@@ -13,6 +14,114 @@ const transporter = nodemailer.createTransport({
     pass: process.env.EMAIL_PASS
   }
 });
+
+// Google Calendar configuration
+let calendar = null;
+
+async function initializeCalendar() {
+  try {
+    const credentials = JSON.parse(process.env.GOOGLE_CALENDAR_CREDENTIALS);
+    const auth = new google.auth.GoogleAuth({
+      credentials: credentials,
+      scopes: ['https://www.googleapis.com/auth/calendar']
+    });
+    
+    calendar = google.calendar({ version: 'v3', auth });
+    console.log('✅ Google Calendar initialized');
+  } catch (error) {
+    console.error('❌ Error initializing Google Calendar:', error);
+  }
+}
+
+async function updateGoogleCalendar(availableSlots) {
+  if (!calendar) {
+    console.log('⚠️  Google Calendar not initialized, skipping calendar update');
+    return;
+  }
+
+  const calendarId = process.env.GOOGLE_CALENDAR_ID;
+  
+  try {
+    // Get all existing events in the calendar
+    const existingEvents = await calendar.events.list({
+      calendarId: calendarId,
+      timeMin: new Date().toISOString(),
+      maxResults: 100,
+      singleEvents: true,
+      orderBy: 'startTime'
+    });
+
+    const existingEventIds = new Set();
+    
+    // Update or create events for current available slots
+    for (const slot of availableSlots) {
+      const eventDate = new Date(slot.date);
+      const [timeStr, period] = slot.time.match(/(\d{1,2}:\d{2})([ap]m)/).slice(1);
+      let [hours, minutes] = timeStr.split(':').map(Number);
+      
+      if (period === 'pm' && hours !== 12) hours += 12;
+      if (period === 'am' && hours === 12) hours = 0;
+      
+      eventDate.setHours(hours, minutes, 0, 0);
+      
+      const eventEndDate = new Date(eventDate);
+      eventEndDate.setHours(eventEndDate.getHours() + 1);
+      
+      const eventSummary = `${TARGET_EQUIPMENT} - Available`;
+      const eventDescription = `Overnight slot available!\n\nBook here: https://libcal.jocolibrary.org/reserve/makerspace`;
+      
+      // Check if event already exists
+      const existingEvent = existingEvents.data.items?.find(event => 
+        event.summary === eventSummary && 
+        new Date(event.start.dateTime).getTime() === eventDate.getTime()
+      );
+      
+      if (existingEvent) {
+        existingEventIds.add(existingEvent.id);
+        console.log(`Event already exists for ${slot.date} at ${slot.time}`);
+      } else {
+        // Create new event
+        const event = {
+          summary: eventSummary,
+          description: eventDescription,
+          start: {
+            dateTime: eventDate.toISOString(),
+            timeZone: 'America/Chicago'
+          },
+          end: {
+            dateTime: eventEndDate.toISOString(),
+            timeZone: 'America/Chicago'
+          },
+          colorId: '10' // Green color
+        };
+        
+        await calendar.events.insert({
+          calendarId: calendarId,
+          resource: event
+        });
+        
+        console.log(`✅ Created calendar event for ${slot.date} at ${slot.time}`);
+      }
+    }
+    
+    // Delete events that are no longer available
+    if (existingEvents.data.items) {
+      for (const event of existingEvents.data.items) {
+        if (!existingEventIds.has(event.id)) {
+          await calendar.events.delete({
+            calendarId: calendarId,
+            eventId: event.id
+          });
+          console.log(`🗑️  Deleted calendar event: ${event.summary}`);
+        }
+      }
+    }
+    
+    console.log('✅ Google Calendar updated successfully');
+  } catch (error) {
+    console.error('❌ Error updating Google Calendar:', error);
+  }
+}
 
 function loadPreviousState() {
   try {
@@ -60,13 +169,26 @@ function formatDateWithDaysAway(dateStr) {
   }
 }
 
-async function sendEmail(availableSlots) {
+function getNextClickCount(daysAway) {
+  // Calendar shows ~3 days per page, so divide by 3 and round up
+  return Math.ceil(daysAway / 3);
+}
+
+async function sendEmail(newSlots, allSlots) {
   let emailBody = `🎉 NEW OVERNIGHT SLOTS AVAILABLE!\n\n`;
   emailBody += `📍 Equipment: ${TARGET_EQUIPMENT}\n\n`;
-  emailBody += `📅 AVAILABLE DATES (Last Bookable Hour):\n`;
+  emailBody += `📅 Check your "MakerSpace Availability" calendar\n\n`;
   
-  availableSlots.forEach(slot => {
+  emailBody += `🆕 NEW SLOTS:\n`;
+  newSlots.forEach(slot => {
     emailBody += `   • ${formatDateWithDaysAway(slot.date)} at ${slot.time}\n`;
+  });
+  
+  emailBody += `\n📋 ALL AVAILABLE SLOTS:\n`;
+  allSlots.forEach(slot => {
+    const daysAway = getDaysAway(slot.date);
+    const clicks = getNextClickCount(daysAway);
+    emailBody += `   • ${formatDateWithDaysAway(slot.date)} at ${slot.time} - Click Next ${clicks} time${clicks !== 1 ? 's' : ''}\n`;
   });
   
   emailBody += `\n🔗 Book here: https://libcal.jocolibrary.org/reserve/makerspace\n`;
@@ -88,6 +210,9 @@ async function sendEmail(availableSlots) {
 }
 
 async function checkAvailability() {
+  // Initialize Google Calendar
+  await initializeCalendar();
+  
   const browser = await puppeteer.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox']
@@ -211,6 +336,9 @@ async function checkAvailability() {
       console.log('Available slots:', allAvailableSlots);
     }
     
+    // Update Google Calendar with all available slots
+    await updateGoogleCalendar(allAvailableSlots);
+    
     // Load previous state
     const previousState = loadPreviousState();
     
@@ -225,8 +353,8 @@ async function checkAvailability() {
       console.log(`\n🆕 NEW availability detected for ${newSlots.length} slot(s)!`);
       console.log('New slots:', newSlots);
       
-      // Send email notification
-      await sendEmail(newSlots);
+      // Send email notification with new and all slots
+      await sendEmail(newSlots, allAvailableSlots);
     } else if (allAvailableSlots.length > 0) {
       console.log('\n✓ Availability unchanged (same slots as before)');
     } else {
