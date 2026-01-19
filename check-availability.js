@@ -3,7 +3,7 @@ const nodemailer = require('nodemailer');
 const fs = require('fs');
 const { google } = require('googleapis');
 
-const TARGET_EQUIPMENT = 'Embroidery Machine - Baby Lock Flare'; // CHECK EQUIPMENT NAME
+const TARGET_EQUIPMENT = 'Laser Cutter - 80w Trotec Speedy 300'; // CHECK EQUIPMENT NAME
 const STATE_FILE = 'previous-state.json';
 
 // Email configuration
@@ -31,6 +31,24 @@ async function initializeCalendar() {
   } catch (error) {
     console.error('❌ Error initializing Google Calendar:', error);
   }
+}
+
+function getDaysAway(dateStr) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const targetDate = new Date(dateStr);
+  targetDate.setHours(0, 0, 0, 0);
+  
+  const diffTime = targetDate - today;
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  
+  return diffDays;
+}
+
+function getNextClickCount(daysAway) {
+  // Calendar shows ~3 days per page, so divide by 3 and round up
+  return Math.ceil(daysAway / 3);
 }
 
 async function updateGoogleCalendar(availableSlots) {
@@ -67,8 +85,11 @@ async function updateGoogleCalendar(availableSlots) {
       const eventEndDate = new Date(eventDate);
       eventEndDate.setHours(eventEndDate.getHours() + 1);
       
+      const daysAway = getDaysAway(slot.date);
+      const clicks = getNextClickCount(daysAway);
+      
       const eventSummary = `${TARGET_EQUIPMENT} - Available`;
-      const eventDescription = `Overnight slot available!\n\nBook here: https://libcal.jocolibrary.org/reserve/makerspace`;
+      const eventDescription = `Overnight slot available!\n\nClick Next ${clicks} time${clicks !== 1 ? 's' : ''} to reach this date\n\nBook here: https://libcal.jocolibrary.org/reserve/makerspace`;
       
       // Check if event already exists
       const existingEvent = existingEvents.data.items?.find(event => 
@@ -78,7 +99,29 @@ async function updateGoogleCalendar(availableSlots) {
       
       if (existingEvent) {
         existingEventIds.add(existingEvent.id);
-        console.log(`Event already exists for ${slot.date} at ${slot.time}`);
+        // Update description if click count changed
+        if (existingEvent.description !== eventDescription) {
+          await calendar.events.update({
+            calendarId: calendarId,
+            eventId: existingEvent.id,
+            resource: {
+              summary: eventSummary,
+              description: eventDescription,
+              start: {
+                dateTime: eventDate.toISOString(),
+                timeZone: 'America/Chicago'
+              },
+              end: {
+                dateTime: eventEndDate.toISOString(),
+                timeZone: 'America/Chicago'
+              },
+              colorId: '10'
+            }
+          });
+          console.log(`✅ Updated calendar event for ${slot.date} at ${slot.time}`);
+        } else {
+          console.log(`Event already exists for ${slot.date} at ${slot.time}`);
+        }
       } else {
         // Create new event
         const event = {
@@ -144,19 +187,6 @@ function savePreviousState(state) {
   }
 }
 
-function getDaysAway(dateStr) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  
-  const targetDate = new Date(dateStr);
-  targetDate.setHours(0, 0, 0, 0);
-  
-  const diffTime = targetDate - today;
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  
-  return diffDays;
-}
-
 function formatDateWithDaysAway(dateStr) {
   const daysAway = getDaysAway(dateStr);
   
@@ -167,11 +197,6 @@ function formatDateWithDaysAway(dateStr) {
   } else {
     return `${dateStr} (${daysAway} days away)`;
   }
-}
-
-function getNextClickCount(daysAway) {
-  // Calendar shows ~3 days per page, so divide by 3 and round up
-  return Math.ceil(daysAway / 3);
 }
 
 async function sendEmail(newSlots, allSlots) {
