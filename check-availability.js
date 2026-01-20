@@ -75,31 +75,29 @@ async function updateGoogleCalendar(availableSlots) {
     
     // Update or create events for current available slots
     for (const slot of availableSlots) {
-      // Parse the date string and set it in Central Time
-      const eventDate = new Date(slot.date + ' ' + slot.time);
-      
-      // Get the time components
+      // Parse the time
       const [timeStr, period] = slot.time.match(/(\d{1,2}:\d{2})([ap]m)/).slice(1);
       let [hours, minutes] = timeStr.split(':').map(Number);
       
       if (period === 'pm' && hours !== 12) hours += 12;
       if (period === 'am' && hours === 12) hours = 0;
       
-      // Create date in Central Time by parsing the full date string
-      const dateParts = new Date(slot.date);
-      const year = dateParts.getFullYear();
-      const month = dateParts.getMonth();
-      const day = dateParts.getDate();
+      // Parse the date (e.g., "Friday, January 23, 2026")
+      const dateObj = new Date(slot.date);
       
-      // Create the datetime string in ISO format for Central Time
-      const centralDate = new Date(year, month, day, hours, minutes, 0);
+      // Build the datetime string in YYYY-MM-DDTHH:MM:SS format
+      const year = dateObj.getFullYear();
+      const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.getDate()).padStart(2, '0');
+      const hourStr = String(hours).padStart(2, '0');
+      const minStr = String(minutes).padStart(2, '0');
       
-      // Format for Google Calendar (we'll specify timezone separately)
-      const eventStartStr = centralDate.toISOString().slice(0, -1); // Remove Z to indicate it's not UTC
+      const eventStartStr = `${year}-${month}-${day}T${hourStr}:${minStr}:00`;
       
-      const eventEndDate = new Date(centralDate);
-      eventEndDate.setHours(eventEndDate.getHours() + 1);
-      const eventEndStr = eventEndDate.toISOString().slice(0, -1);
+      // End time is 1 hour later
+      const endHours = hours + 1;
+      const endHourStr = String(endHours).padStart(2, '0');
+      const eventEndStr = `${year}-${month}-${day}T${endHourStr}:${minStr}:00`;
       
       const daysAway = getDaysAway(slot.date);
       const clicks = getNextClickCount(daysAway);
@@ -107,11 +105,11 @@ async function updateGoogleCalendar(availableSlots) {
       const eventSummary = `${TARGET_EQUIPMENT} - Available`;
       const eventDescription = `Overnight slot available!\n\nClick Next ${clicks} time${clicks !== 1 ? 's' : ''} to reach this date\n\nBook here: https://libcal.jocolibrary.org/reserve/makerspace`;
       
-      // Check if event already exists (compare by date/time in the same timezone)
+      // Check if event already exists (compare by summary and start time)
       const existingEvent = existingEvents.data.items?.find(event => {
         if (event.summary !== eventSummary) return false;
-        const existingStart = new Date(event.start.dateTime);
-        return existingStart.getTime() === centralDate.getTime();
+        // Compare the dateTime strings directly
+        return event.start.dateTime?.startsWith(eventStartStr);
       });
       
       if (existingEvent) {
