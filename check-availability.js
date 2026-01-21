@@ -3,7 +3,7 @@ const nodemailer = require('nodemailer');
 const fs = require('fs');
 const { google } = require('googleapis');
 
-const TARGET_EQUIPMENT = 'Sewing Machine - Janome Skyline S5'; // CHECK EQUIPMENT NAME
+const TARGET_EQUIPMENT = '3D Printer - Prusa XL 5-Toolhead'; // CHECK EQUIPMENT NAME
 const STATE_FILE = 'previous-state.json';
 
 // Email configuration
@@ -47,8 +47,10 @@ function getDaysAway(dateStr) {
 }
 
 function getNextClickCount(daysAway) {
-  // Calendar shows ~3 days per page, so divide by 3 and round up
-  return Math.ceil(daysAway / 3);
+  // Page 1 shows days 0-2 (today + 2 days)
+  // Each subsequent page shows 3 more days
+  // So: 0-2 = 0 clicks, 3-5 = 1 click, 6-8 = 2 clicks, etc.
+  return Math.floor(daysAway / 3);
 }
 
 async function updateGoogleCalendar(availableSlots) {
@@ -73,17 +75,29 @@ async function updateGoogleCalendar(availableSlots) {
     
     // Update or create events for current available slots
     for (const slot of availableSlots) {
-      const eventDate = new Date(slot.date);
+      // Parse the time
       const [timeStr, period] = slot.time.match(/(\d{1,2}:\d{2})([ap]m)/).slice(1);
       let [hours, minutes] = timeStr.split(':').map(Number);
       
       if (period === 'pm' && hours !== 12) hours += 12;
       if (period === 'am' && hours === 12) hours = 0;
       
-      eventDate.setHours(hours, minutes, 0, 0);
+      // Parse the date (e.g., "Friday, January 23, 2026")
+      const dateObj = new Date(slot.date);
       
-      const eventEndDate = new Date(eventDate);
-      eventEndDate.setHours(eventEndDate.getHours() + 1);
+      // Build the datetime string in YYYY-MM-DDTHH:MM:SS format
+      const year = dateObj.getFullYear();
+      const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.getDate()).padStart(2, '0');
+      const hourStr = String(hours).padStart(2, '0');
+      const minStr = String(minutes).padStart(2, '0');
+      
+      const eventStartStr = `${year}-${month}-${day}T${hourStr}:${minStr}:00`;
+      
+      // End time is 1 hour later
+      const endHours = hours + 1;
+      const endHourStr = String(endHours).padStart(2, '0');
+      const eventEndStr = `${year}-${month}-${day}T${endHourStr}:${minStr}:00`;
       
       const daysAway = getDaysAway(slot.date);
       const clicks = getNextClickCount(daysAway);
@@ -91,11 +105,12 @@ async function updateGoogleCalendar(availableSlots) {
       const eventSummary = `${TARGET_EQUIPMENT} - Available`;
       const eventDescription = `Overnight slot available!\n\nClick Next ${clicks} time${clicks !== 1 ? 's' : ''} to reach this date\n\nBook here: https://libcal.jocolibrary.org/reserve/makerspace`;
       
-      // Check if event already exists
-      const existingEvent = existingEvents.data.items?.find(event => 
-        event.summary === eventSummary && 
-        new Date(event.start.dateTime).getTime() === eventDate.getTime()
-      );
+      // Check if event already exists (compare by summary and start time)
+      const existingEvent = existingEvents.data.items?.find(event => {
+        if (event.summary !== eventSummary) return false;
+        // Compare the dateTime strings directly
+        return event.start.dateTime?.startsWith(eventStartStr);
+      });
       
       if (existingEvent) {
         existingEventIds.add(existingEvent.id);
@@ -108,11 +123,11 @@ async function updateGoogleCalendar(availableSlots) {
               summary: eventSummary,
               description: eventDescription,
               start: {
-                dateTime: eventDate.toISOString(),
+                dateTime: eventStartStr,
                 timeZone: 'America/Chicago'
               },
               end: {
-                dateTime: eventEndDate.toISOString(),
+                dateTime: eventEndStr,
                 timeZone: 'America/Chicago'
               },
               colorId: '10'
@@ -128,11 +143,11 @@ async function updateGoogleCalendar(availableSlots) {
           summary: eventSummary,
           description: eventDescription,
           start: {
-            dateTime: eventDate.toISOString(),
+            dateTime: eventStartStr,
             timeZone: 'America/Chicago'
           },
           end: {
-            dateTime: eventEndDate.toISOString(),
+            dateTime: eventEndStr,
             timeZone: 'America/Chicago'
           },
           colorId: '10' // Green color
