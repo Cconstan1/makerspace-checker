@@ -9,6 +9,9 @@ jobs:
   check-availability:
     runs-on: ubuntu-latest
     
+    permissions:
+      contents: write  # Allow pushing state file back to repo
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -29,3 +32,11 @@ jobs:
           GOOGLE_CALENDAR_CREDENTIALS: ${{ secrets.GOOGLE_CALENDAR_CREDENTIALS }}
           GOOGLE_CALENDAR_ID: ${{ secrets.GOOGLE_CALENDAR_ID }}
         run: node check-availability.js
+      
+      - name: Commit state file
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add previous-state.json
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update availability state [skip ci]"
+          git push
