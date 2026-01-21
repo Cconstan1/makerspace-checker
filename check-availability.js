@@ -47,10 +47,16 @@ function getDaysAway(dateStr) {
 }
 
 function getNextClickCount(daysAway) {
-  // Page 1 shows days 0-2 (today + 2 days)
-  // Each subsequent page shows 3 more days
-  // So: 0-2 = 0 clicks, 3-5 = 1 click, 6-8 = 2 clicks, etc.
+  // Page 1 shows days 0-2 (today + 2 days) = 0 clicks
+  // Page 2 shows days 3-5 = 1 click
+  // Page 3 shows days 6-8 = 2 clicks, etc.
+  if (daysAway <= 2) return 0;
   return Math.floor(daysAway / 3);
+}
+
+function formatClickCount(clicks) {
+  if (clicks === 0) return '';
+  return ` - Click Next ${clicks} time${clicks !== 1 ? 's' : ''}`;
 }
 
 async function updateGoogleCalendar(availableSlots) {
@@ -82,16 +88,15 @@ async function updateGoogleCalendar(availableSlots) {
       if (period === 'pm' && hours !== 12) hours += 12;
       if (period === 'am' && hours === 12) hours = 0;
       
-      // Parse the date (e.g., "Friday, January 23, 2026")
+      // Parse the date
       const dateObj = new Date(slot.date);
-      
-      // Build the datetime string in YYYY-MM-DDTHH:MM:SS format
       const year = dateObj.getFullYear();
       const month = String(dateObj.getMonth() + 1).padStart(2, '0');
       const day = String(dateObj.getDate()).padStart(2, '0');
       const hourStr = String(hours).padStart(2, '0');
       const minStr = String(minutes).padStart(2, '0');
       
+      // Build datetime in YYYY-MM-DDTHH:MM:SS format (no Z = local time)
       const eventStartStr = `${year}-${month}-${day}T${hourStr}:${minStr}:00`;
       
       // End time is 1 hour later
@@ -103,12 +108,15 @@ async function updateGoogleCalendar(availableSlots) {
       const clicks = getNextClickCount(daysAway);
       
       const eventSummary = `${TARGET_EQUIPMENT} - Available`;
-      const eventDescription = `Overnight slot available!\n\nClick Next ${clicks} time${clicks !== 1 ? 's' : ''} to reach this date\n\nBook here: https://libcal.jocolibrary.org/reserve/makerspace`;
+      let eventDescription = `Overnight slot available!`;
+      if (clicks > 0) {
+        eventDescription += `\n\nClick Next ${clicks} time${clicks !== 1 ? 's' : ''} to reach this date`;
+      }
+      eventDescription += `\n\nBook here: https://libcal.jocolibrary.org/reserve/makerspace`;
       
-      // Check if event already exists (compare by summary and start time)
+      // Check if event already exists
       const existingEvent = existingEvents.data.items?.find(event => {
         if (event.summary !== eventSummary) return false;
-        // Compare the dateTime strings directly
         return event.start.dateTime?.startsWith(eventStartStr);
       });
       
@@ -228,7 +236,8 @@ async function sendEmail(newSlots, allSlots) {
   allSlots.forEach(slot => {
     const daysAway = getDaysAway(slot.date);
     const clicks = getNextClickCount(daysAway);
-    emailBody += `   • ${formatDateWithDaysAway(slot.date)} at ${slot.time} - Click Next ${clicks} time${clicks !== 1 ? 's' : ''}\n`;
+    const clickText = formatClickCount(clicks);
+    emailBody += `   • ${formatDateWithDaysAway(slot.date)} at ${slot.time}${clickText}\n`;
   });
   
   emailBody += `\n🔗 Book here: https://libcal.jocolibrary.org/reserve/makerspace\n`;
