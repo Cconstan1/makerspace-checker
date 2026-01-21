@@ -1,9 +1,21 @@
 {
   "availableSlots": [
     {
+      "date": "Friday, January 30, 2026",
+      "time": "5:00pm"
+    },
+    {
+      "date": "Sunday, February 1, 2026",
+      "time": "4:00pm"
+    },
+    {
       "date": "Monday, February 2, 2026",
+      "time": "7:00pm"
+    },
+    {
+      "date": "Tuesday, February 3, 2026",
       "time": "7:00pm"
     }
   ],
-  "lastChecked": "2026-01-19T06:02:12.655Z"
+  "lastChecked": "2026-01-21T05:31:28.757Z"
 }
