@@ -3,7 +3,7 @@ const nodemailer = require('nodemailer');
 const fs = require('fs');
 const { google } = require('googleapis');
 
-const TARGET_EQUIPMENT = 'Embroidery Machine - Baby Lock Flare'; // CHECK EQUIPMENT NAME
+const TARGET_EQUIPMENT = '3D Printer - Prusa XL 5-Toolhead'; // CHECK EQUIPMENT NAME
 const STATE_FILE = 'previous-state.json';
 
 // Email configuration
