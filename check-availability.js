@@ -170,15 +170,24 @@ async function updateGoogleCalendar(availableSlots) {
       }
     }
     
-    // Delete events that are no longer available
+    // Delete events that are no longer available OR are in the past
+    const now = new Date();
     if (existingEvents.data.items) {
       for (const event of existingEvents.data.items) {
-        if (!existingEventIds.has(event.id)) {
+        const eventStart = new Date(event.start.dateTime);
+        const isPast = eventStart < now;
+        const noLongerAvailable = !existingEventIds.has(event.id);
+        
+        if (isPast || noLongerAvailable) {
           await calendar.events.delete({
             calendarId: calendarId,
             eventId: event.id
           });
-          console.log(`🗑️  Deleted calendar event: ${event.summary}`);
+          if (isPast) {
+            console.log(`🗑️  Deleted past event: ${event.summary} (${event.start.dateTime})`);
+          } else {
+            console.log(`🗑️  Deleted unavailable event: ${event.summary}`);
+          }
         }
       }
     }
