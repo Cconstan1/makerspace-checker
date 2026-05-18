@@ -1,4 +1,9 @@
 {
-  "availableSlots": [],
-  "lastChecked": "2026-05-17T17:10:42.451Z"
+  "availableSlots": [
+    {
+      "date": "Monday, June 1, 2026",
+      "time": "7:00pm"
+    }
+  ],
+  "lastChecked": "2026-05-18T08:36:38.717Z"
 }
