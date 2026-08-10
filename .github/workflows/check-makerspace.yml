@@ -1,14 +1,23 @@
 name: Check MakerSpace Availability
-
 on:
   schedule:
     - cron: '*/30 * * * *'  # Run every 30 minutes
   workflow_dispatch:  # Allow manual trigger
 
+# Prevents runs from piling up / getting stuck behind each other.
+# If a new scheduled run starts while an old one is still going,
+# the old one gets cancelled instead of hanging for hours.
+concurrency:
+  group: makerspace-checker
+  cancel-in-progress: true
+
 jobs:
   check-availability:
     runs-on: ubuntu-latest
-    
+    # Kills the job automatically if it hangs, instead of letting it
+    # sit "in progress" for up to 6 hours (GitHub's default max).
+    timeout-minutes: 10
+
     permissions:
       contents: write  # Allow pushing state file back to repo
     
