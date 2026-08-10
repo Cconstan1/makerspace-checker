@@ -282,92 +282,39 @@ async function checkAvailability() {
     while (hasNextPage) {
       console.log(`Checking page ${pageNum}...`);
 
+      // DEBUG BUILD - positional correlation investigation (v3)
       const pageResults = await page.evaluate((equipmentName) => {
+        // Grab equipment row labels from the left-hand panel, with their
+        // vertical position, so we can match each event bar to a row.
+        const labelEls = Array.from(document.querySelectorAll('.fc-datagrid-cell-cushion .fc-cell-text, .fc-datagrid-cell-cushion a'));
+        const rowLabels = labelEls.map(el => {
+          const rect = el.getBoundingClientRect();
+          return { text: el.textContent.trim(), top: rect.top, height: rect.height };
+        }).filter(r => r.text.length > 0);
+
         const events = Array.from(document.querySelectorAll('a.fc-timeline-event'));
 
-        // DEBUG: grab a handful of raw title attributes so we can see
-        // the actual current format being used by the site.
-        const sampleTitles = events.slice(0, 5).map(e => e.getAttribute('title') || '');
-
-        // DEBUG: title is coming back empty - check other common attributes
-        // (tooltip libraries often move the text to data-original-title, aria-label, etc.)
-        const sampleFullAttrs = events.slice(0, 3).map(e => {
-          const attrs = {};
-          for (const attr of e.attributes) {
-            attrs[attr.name] = attr.value;
-          }
+        const eventSamples = events.slice(0, 5).map(e => {
+          const rect = e.getBoundingClientRect();
           return {
-            outerHTMLSnippet: e.outerHTML.slice(0, 300),
-            attributes: attrs
+            className: e.className,
+            top: rect.top,
+            left: rect.left,
+            width: rect.width,
+            height: rect.height
           };
         });
 
-        const equipmentByDate = {};
-        const allEquipment = new Set();
-
-        events.forEach(event => {
-          const title = event.getAttribute('title') || '';
-          const timeMatch = title.match(/^(\d{1,2}:\d{2}[ap]m)/);
-          if (!timeMatch) return;
-          const timeStr = timeMatch[1];
-
-          const dateMatch = title.match(/(\w+day, \w+ \d+, \d{4})/);
-          if (!dateMatch) return;
-          const dateStr = dateMatch[1];
-
-          const equipMatch = title.match(/\d{4}\s+-\s+(.+?)\s+-\s+(?:Reserved|Available)/);
-          if (!equipMatch) return;
-          const equipment = equipMatch[1];
-
-          allEquipment.add(equipment);
-          const isAvailable = title.includes('- Available');
-
-          if (!equipmentByDate[dateStr]) {
-            equipmentByDate[dateStr] = {};
-          }
-          if (!equipmentByDate[dateStr][equipment]) {
-            equipmentByDate[dateStr][equipment] = [];
-          }
-
-          equipmentByDate[dateStr][equipment].push({
-            time: timeStr,
-            available: isAvailable
-          });
-        });
-
-        const availableSlots = [];
-        Object.keys(equipmentByDate).forEach(date => {
-          if (equipmentByDate[date][equipmentName]) {
-            const slots = equipmentByDate[date][equipmentName];
-            slots.sort((a, b) => {
-              const parseTime = (timeStr) => {
-                const [time, period] = timeStr.match(/(\d{1,2}:\d{2})([ap]m)/).slice(1);
-                let [hours, minutes] = time.split(':').map(Number);
-                if (period === 'pm' && hours !== 12) hours += 12;
-                if (period === 'am' && hours === 12) hours = 0;
-                return hours * 60 + minutes;
-              };
-              return parseTime(b.time) - parseTime(a.time);
-            });
-
-            const lastSlot = slots[0];
-            if (lastSlot.available) {
-              availableSlots.push({ date: date, time: lastSlot.time });
-            }
-          }
-        });
-
         return {
-          availableSlots: availableSlots,
-          allEquipment: Array.from(allEquipment),
           totalEventsFound: events.length,
-          sampleTitles: sampleTitles,
-          sampleFullAttrs: sampleFullAttrs
+          rowLabelCount: rowLabels.length,
+          rowLabels: rowLabels.slice(0, 20),
+          eventSamples: eventSamples
         };
       }, TARGET_EQUIPMENT);
 
       console.log(`Page ${pageNum} results:`, JSON.stringify(pageResults, null, 2));
-      allAvailableSlots.push(...pageResults.availableSlots);
+      // allAvailableSlots stays empty for this debug pass
 
       const nextButton = await page.$('button.fc-next-button:not([disabled])');
       if (nextButton) {
