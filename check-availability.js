@@ -289,6 +289,19 @@ async function checkAvailability() {
         // the actual current format being used by the site.
         const sampleTitles = events.slice(0, 5).map(e => e.getAttribute('title') || '');
 
+        // DEBUG: title is coming back empty - check other common attributes
+        // (tooltip libraries often move the text to data-original-title, aria-label, etc.)
+        const sampleFullAttrs = events.slice(0, 3).map(e => {
+          const attrs = {};
+          for (const attr of e.attributes) {
+            attrs[attr.name] = attr.value;
+          }
+          return {
+            outerHTMLSnippet: e.outerHTML.slice(0, 300),
+            attributes: attrs
+          };
+        });
+
         const equipmentByDate = {};
         const allEquipment = new Set();
 
@@ -348,7 +361,8 @@ async function checkAvailability() {
           availableSlots: availableSlots,
           allEquipment: Array.from(allEquipment),
           totalEventsFound: events.length,
-          sampleTitles: sampleTitles
+          sampleTitles: sampleTitles,
+          sampleFullAttrs: sampleFullAttrs
         };
       }, TARGET_EQUIPMENT);
 
