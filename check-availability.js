@@ -282,10 +282,8 @@ async function checkAvailability() {
     while (hasNextPage) {
       console.log(`Checking page ${pageNum}...`);
 
-      // DEBUG BUILD - positional correlation investigation (v3)
+      // DEBUG BUILD v4 - ancestor attribute inspection (looking for data-date)
       const pageResults = await page.evaluate((equipmentName) => {
-        // Grab equipment row labels from the left-hand panel, with their
-        // vertical position, so we can match each event bar to a row.
         const labelEls = Array.from(document.querySelectorAll('.fc-datagrid-cell-cushion .fc-cell-text, .fc-datagrid-cell-cushion a'));
         const rowLabels = labelEls.map(el => {
           const rect = el.getBoundingClientRect();
@@ -296,12 +294,27 @@ async function checkAvailability() {
 
         const eventSamples = events.slice(0, 5).map(e => {
           const rect = e.getBoundingClientRect();
+
+          // Walk up the ancestor chain looking for date info (common
+          // FullCalendar pattern: data-date lives on a wrapping <td>).
+          const ancestors = [];
+          let node = e.parentElement;
+          for (let i = 0; i < 6 && node; i++) {
+            const attrs = {};
+            for (const attr of node.attributes) {
+              attrs[attr.name] = attr.value;
+            }
+            ancestors.push({ tag: node.tagName, attrs: attrs });
+            node = node.parentElement;
+          }
+
           return {
             className: e.className,
             top: rect.top,
             left: rect.left,
             width: rect.width,
-            height: rect.height
+            height: rect.height,
+            ancestors: ancestors
           };
         });
 
