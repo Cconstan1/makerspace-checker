@@ -3,8 +3,11 @@ const nodemailer = require('nodemailer');
 const fs = require('fs');
 const { google } = require('googleapis');
 
-const TARGET_EQUIPMENT = '3D Printer - Prusa XL 5-Toolhead'; // CHECK EQUIPMENT NAME
+const TARGET_EQUIPMENT = '3D Printer - Prusa XL 5-Toolhead'; // CHANGE THIS to test other equipment
 const STATE_FILE = 'previous-state.json';
+const ROW_HEIGHT = 45;       // px between equipment rows
+const HOUR_WIDTH = 75;       // px per hourly column
+const DAY_WIDTH = 1800;      // px per day (24 * HOUR_WIDTH)
 
 // Email configuration
 const transporter = nodemailer.createTransport({
@@ -53,6 +56,15 @@ function getNextClickCount(daysAway) {
 function formatClickCount(clicks) {
   if (clicks === 0) return '';
   return ` - Click Next ${clicks} time${clicks !== 1 ? 's' : ''}`;
+}
+
+function formatHourAsTimeString(hour) {
+  // hour is 0-23 (float, should be near-integer). Round to nearest.
+  const h = Math.round(hour) % 24;
+  const period = h >= 12 ? 'pm' : 'am';
+  let displayHour = h % 12;
+  if (displayHour === 0) displayHour = 12;
+  return `${displayHour}:00${period}`;
 }
 
 async function updateGoogleCalendar(availableSlots) {
@@ -239,7 +251,7 @@ async function sendEmail(newSlots, allSlots) {
   const mailOptions = {
     from: process.env.EMAIL_USER,
     to: process.env.EMAIL_TO,
-    subject: '🎉 3D Printer Overnight Slots Available!',
+    subject: `🎉 ${TARGET_EQUIPMENT} Overnight Slots Available!`,
     text: emailBody
   };
   try {
@@ -282,75 +294,106 @@ async function checkAvailability() {
     while (hasNextPage) {
       console.log(`Checking page ${pageNum}...`);
 
-      // DEBUG BUILD v5 - day header capture (looking for date anchor points)
-      const pageResults = await page.evaluate((equipmentName) => {
-        const labelEls = Array.from(document.querySelectorAll('.fc-datagrid-cell-cushion .fc-cell-text, .fc-datagrid-cell-cushion a'));
-        const rowLabels = labelEls.map(el => {
-          const rect = el.getBoundingClientRect();
-          return { text: el.textContent.trim(), top: rect.top, height: rect.height };
-        }).filter(r => r.text.length > 0);
+      const pageResults = await page.evaluate((equipmentName, ROW_HEIGHT, HOUR_WIDTH, DAY_WIDTH) => {
+        // 1. Get equipment row labels with vertical position (dedup by top)
+        const labelEls = Array.from(document.querySelectorAll('.fc-datagrid-cell-cushion .fc-cell-text'));
+        const rowsByTop = new Map();
+        labelEls.forEach(el => {
+          const text = el.textContent.trim();
+          if (!text || text === 'Info') return;
+          const top = el.getBoundingClientRect().top;
+          if (!rowsByTop.has(top)) rowsByTop.set(top, text);
+        });
 
-        // Find the day-header cells (e.g. "Monday, August 10, 2026") so we
-        // can map an event's pixel position to an actual calendar date.
+        // Find the target equipment's row top (there may be multiple rows
+        // with the same equipment name - e.g. two 3D printers - so this
+        // matches ALL rows with that name; we use the first match here,
+        // consistent with original behavior of tracking one unit).
+        let targetRowTop = null;
+        for (const [top, text] of rowsByTop.entries()) {
+          if (text === equipmentName) {
+            targetRowTop = top;
+            break;
+          }
+        }
+
+        if (targetRowTop === null) {
+          return { error: `Equipment "${equipmentName}" not found on this page`, availableSlots: [] };
+        }
+
+        // Events sit ~12px above their row's label top
+        const EVENT_TOP_OFFSET = 12;
+        const expectedEventTop = targetRowTop - EVENT_TOP_OFFSET;
+
+        // 2. Get day headers (date + pixel range)
         const dayHeaderEls = Array.from(document.querySelectorAll('.fc-timeline-header *'))
           .filter(el => /\w+day,\s+\w+\s+\d{1,2},\s+\d{4}/.test(el.textContent) && el.children.length === 0);
         const dayHeaders = dayHeaderEls.map(el => {
-          const rect = el.getBoundingClientRect();
           const parentTd = el.closest('td, th');
-          const parentRect = parentTd ? parentTd.getBoundingClientRect() : rect;
-          return {
-            text: el.textContent.trim(),
-            left: parentRect.left,
-            width: parentRect.width
-          };
+          const rect = (parentTd || el).getBoundingClientRect();
+          return { text: el.textContent.trim(), left: rect.left, width: rect.width };
         });
 
+        // 3. Get all events belonging to the target equipment's row
         const events = Array.from(document.querySelectorAll('a.fc-timeline-event'));
-
-        const eventSamples = events.slice(0, 5).map(e => {
-          const rect = e.getBoundingClientRect();
-
-          const ancestors = [];
-          let node = e.parentElement;
-          for (let i = 0; i < 6 && node; i++) {
-            const attrs = {};
-            for (const attr of node.attributes) {
-              attrs[attr.name] = attr.value;
-            }
-            ancestors.push({ tag: node.tagName, attrs: attrs });
-            node = node.parentElement;
-          }
-
-          return {
-            className: e.className,
-            top: rect.top,
-            left: rect.left,
-            width: rect.width,
-            height: rect.height,
-            ancestors: ancestors
-          };
+        const rowEvents = events.filter(e => {
+          const top = e.getBoundingClientRect().top;
+          return Math.abs(top - expectedEventTop) < ROW_HEIGHT / 2;
         });
 
-        return {
-          totalEventsFound: events.length,
-          rowLabelCount: rowLabels.length,
-          rowLabels: rowLabels.slice(0, 20),
-          dayHeaders: dayHeaders,
-          eventSamples: eventSamples
-        };
-      }, TARGET_EQUIPMENT);
+        // 4. For each day, find the LAST (rightmost) event = last bookable hour
+        const lastEventByDay = {}; // dayIndex -> event data
+        rowEvents.forEach(e => {
+          const rect = e.getBoundingClientRect();
+          // Determine which day this event falls into
+          const dayIdx = dayHeaders.findIndex(d => rect.left >= d.left && rect.left < d.left + d.width);
+          if (dayIdx === -1) return;
 
-      console.log(`Page ${pageNum} results:`, JSON.stringify(pageResults, null, 2));
-      // allAvailableSlots stays empty for this debug pass
+          if (!lastEventByDay[dayIdx] || rect.left > lastEventByDay[dayIdx].left) {
+            lastEventByDay[dayIdx] = {
+              left: rect.left,
+              className: e.className,
+              dayIdx: dayIdx
+            };
+          }
+        });
+
+        // 5. Build available slots list
+        const availableSlots = [];
+        Object.values(lastEventByDay).forEach(ev => {
+          const isAvailable = ev.className.includes('s-lc-eq-avail');
+          if (!isAvailable) return;
+
+          const dayHeader = dayHeaders[ev.dayIdx];
+          const hourOffset = (ev.left - dayHeader.left) / HOUR_WIDTH;
+
+          availableSlots.push({
+            date: dayHeader.text,
+            hourOffset: hourOffset
+          });
+        });
+
+        return { availableSlots: availableSlots };
+      }, TARGET_EQUIPMENT, ROW_HEIGHT, HOUR_WIDTH, DAY_WIDTH);
+
+      if (pageResults.error) {
+        console.log(`⚠️  ${pageResults.error}`);
+      } else if (pageResults.availableSlots.length > 0) {
+        pageResults.availableSlots.forEach(slot => {
+          const timeStr = formatHourAsTimeString(slot.hourOffset);
+          console.log(`  ✓ ${slot.date}: Last hour Available (${timeStr})`);
+          allAvailableSlots.push({ date: slot.date, time: timeStr });
+        });
+      } else {
+        console.log(`  No availability found on page ${pageNum}`);
+      }
 
       const nextButton = await page.$('button.fc-next-button:not([disabled])');
       if (nextButton) {
-        console.log('Clicking next page...');
         await nextButton.click();
         await new Promise(resolve => setTimeout(resolve, 2000));
         pageNum++;
       } else {
-        console.log('No more pages to check');
         hasNextPage = false;
       }
     }
