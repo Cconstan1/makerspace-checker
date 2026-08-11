@@ -282,7 +282,7 @@ async function checkAvailability() {
     while (hasNextPage) {
       console.log(`Checking page ${pageNum}...`);
 
-      // DEBUG BUILD v4 - ancestor attribute inspection (looking for data-date)
+      // DEBUG BUILD v5 - day header capture (looking for date anchor points)
       const pageResults = await page.evaluate((equipmentName) => {
         const labelEls = Array.from(document.querySelectorAll('.fc-datagrid-cell-cushion .fc-cell-text, .fc-datagrid-cell-cushion a'));
         const rowLabels = labelEls.map(el => {
@@ -290,13 +290,26 @@ async function checkAvailability() {
           return { text: el.textContent.trim(), top: rect.top, height: rect.height };
         }).filter(r => r.text.length > 0);
 
+        // Find the day-header cells (e.g. "Monday, August 10, 2026") so we
+        // can map an event's pixel position to an actual calendar date.
+        const dayHeaderEls = Array.from(document.querySelectorAll('.fc-timeline-header *'))
+          .filter(el => /\w+day,\s+\w+\s+\d{1,2},\s+\d{4}/.test(el.textContent) && el.children.length === 0);
+        const dayHeaders = dayHeaderEls.map(el => {
+          const rect = el.getBoundingClientRect();
+          const parentTd = el.closest('td, th');
+          const parentRect = parentTd ? parentTd.getBoundingClientRect() : rect;
+          return {
+            text: el.textContent.trim(),
+            left: parentRect.left,
+            width: parentRect.width
+          };
+        });
+
         const events = Array.from(document.querySelectorAll('a.fc-timeline-event'));
 
         const eventSamples = events.slice(0, 5).map(e => {
           const rect = e.getBoundingClientRect();
 
-          // Walk up the ancestor chain looking for date info (common
-          // FullCalendar pattern: data-date lives on a wrapping <td>).
           const ancestors = [];
           let node = e.parentElement;
           for (let i = 0; i < 6 && node; i++) {
@@ -322,6 +335,7 @@ async function checkAvailability() {
           totalEventsFound: events.length,
           rowLabelCount: rowLabels.length,
           rowLabels: rowLabels.slice(0, 20),
+          dayHeaders: dayHeaders,
           eventSamples: eventSamples
         };
       }, TARGET_EQUIPMENT);
