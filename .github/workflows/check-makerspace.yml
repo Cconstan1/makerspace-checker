@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     # Kills the job automatically if it hangs, instead of letting it
     # sit "in progress" for up to 6 hours (GitHub's default max).
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     permissions:
       contents: write  # Allow pushing state file back to repo
